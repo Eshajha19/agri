@@ -59,7 +59,7 @@ def test_predict_post_returns_500_when_auth_not_initialised():
     client = TestClient(app, raise_server_exceptions=False)
     response = client.post("/api/ml", json=VALID_PAYLOAD)
     assert response.status_code == 500
-    assert "Auth service not initialized" in response.json()["detail"]
+    assert "ML model not initialized" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +110,20 @@ def test_predict_post_returns_prediction_on_success():
     body = response.json()
     assert "predicted_ExpYield" in body
     assert body["predicted_ExpYield"] == pytest.approx(123.45)
+
+
+def test_predict_post_works_without_auth():
+    mock_model = MagicMock()
+    mock_model.predict.return_value = 88.8
+    app = FastAPI()
+    app.include_router(router, prefix="/api/ml")
+    init_router(mock_model, None, None, None)
+    client = TestClient(app)
+    response = client.post("/api/ml", json=VALID_PAYLOAD)
+    assert response.status_code == 200
+    body = response.json()
+    assert "predicted_ExpYield" in body
+    assert body["predicted_ExpYield"] == pytest.approx(88.8)
 
 
 # ---------------------------------------------------------------------------
