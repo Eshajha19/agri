@@ -1,13 +1,20 @@
 import apiClient from './api';
+import { predictYieldRuleBased } from '../utils/yieldRules';
 
 export const predictYield = async (payload) => {
-  const response = await apiClient.post('/predict', payload, {
-    retries: 2,
-    errorContext: 'yield-prediction',
-    errorMessage: 'Failed to get yield prediction. Please try again.',
-  });
+  try {
+    const response = await apiClient.post('/predict', payload, {
+      retries: 2,
+      errorContext: 'yield-prediction',
+      errorMessage: 'Failed to get yield prediction. Please try again.',
+    });
 
-  return response.data;
+    return response.data;
+  } catch (apiError) {
+    console.warn('API yield prediction failed, using rule-based fallback', apiError);
+    const predicted = predictYieldRuleBased(payload);
+    return { predicted_ExpYield: predicted, fallback: true };
+  }
 };
 
 export const fetchYieldAnalytics = async () => {
