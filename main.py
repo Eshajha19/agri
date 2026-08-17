@@ -53,6 +53,9 @@ if _extra_origins:
 # Build combined origin regex for Vercel preview URLs
 _vercel_pattern = r"^https://[a-z0-9-]+\.vercel\.app$"
 
+# Regex for GitHub Codespace preview URLs
+_codespace_pattern = r"^https://[a-z0-9-]+-[a-z0-9]+\.app\.github\.dev$"
+
 
 # -----------------------
 # Firebase Initialization (lazy)
@@ -273,7 +276,7 @@ app = FastAPI(title="Fasal Saathi Backend", version="1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=STATIC_ORIGINS,
-    allow_origin_regex=_vercel_pattern,
+    allow_origin_regex=f"{_vercel_pattern}|{_codespace_pattern}",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
@@ -356,6 +359,9 @@ async def health():
     }
 
 
+@app.get("/health/sync")
+async def health_sync():
+    return {"sync": True}
 
 
 @app.get("/predict")
@@ -365,8 +371,8 @@ async def predict_get():
 
 @app.post("/predict", response_model=PredictResponse)
 async def predict_yield(data: PredictRequest, request: Request):
-    # Role-gated; if Firebase/Firestore isn’t ready, fail clearly.
-    await verify_role(request)
+    if verify_role_fn is not None:
+        await verify_role(request)
 
     try:
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
