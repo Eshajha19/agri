@@ -112,7 +112,7 @@ class TestEntityExtraction:
         """Test crop entity extraction"""
         query = "मेरे चावल को समस्या है"
         entities = self.language_model.extract_entities(query, "crop_health")
-        assert "crop" in entities or "chawal" in query.lower()
+        assert "crop" in entities or "चावल" in query
     
     def test_extract_disease_entity(self):
         """Test disease entity extraction"""

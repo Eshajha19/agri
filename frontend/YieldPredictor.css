@@ -1,5 +1,5 @@
 /* ============================================================
-   YieldPredictor — standalone page styles
+   YieldPredictor — Standalone Page Styles
    ============================================================ */
 
 .yield-predictor-page {
@@ -7,8 +7,24 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 40px 16px 60px;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  padding: 48px 16px 70px;
+  background:
+    radial-gradient(
+      circle at 10% 10%,
+      rgba(34, 197, 94, 0.1),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 90% 20%,
+      rgba(16, 185, 129, 0.08),
+      transparent 28%
+    ),
+    linear-gradient(
+      135deg,
+      #f8fafc 0%,
+      #f0fdf4 50%,
+      #ecfdf5 100%
+    );
 }
 
 .yield-predictor-container {
@@ -16,38 +32,52 @@
   width: 100%;
   max-width: 680px;
   background: #ffffff;
-  border-radius: 20px;
-  padding: 40px 36px 36px;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.1);
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  padding: 42px 38px 38px;
+  box-shadow:
+    0 10px 30px rgba(15, 23, 42, 0.06),
+    0 25px 70px rgba(15, 23, 42, 0.08);
 }
 
-/* Back / close button */
+/* ============================================================
+   Back / Close Button
+   ============================================================ */
+
 .yield-predictor-back-btn {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 18px;
+  right: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #e2e8f0;
   border-radius: 50%;
-  background: #f1f5f9;
-  color: #475569;
+  background: #f8fafc;
+  color: #64748b;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .yield-predictor-back-btn:hover,
 .yield-predictor-back-btn:focus-visible {
-  background: #e2e8f0;
-  color: #0f172a;
-  outline: 2px solid #22c55e;
-  outline-offset: 2px;
+  background: #ecfdf5;
+  color: #15803d;
+  border-color: #86efac;
+  outline: none;
+  transform: translateY(-1px);
 }
 
-/* ---- Form root (shared with modal) ---- */
+/* ============================================================
+   Form Root
+   ============================================================ */
+
 .yield-predictor-form-root {
   width: 100%;
 }
@@ -56,82 +86,198 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 1.55rem;
+  font-weight: 750;
   color: #0f172a;
-  margin: 0 0 24px;
+  margin: 0 0 28px;
+  letter-spacing: -0.02em;
 }
 
 .yield-form-title .inline-icon {
-  color: #22c55e;
+  color: #16a34a;
   flex-shrink: 0;
 }
 
-/* Error box */
+/* ============================================================
+   Form Layout
+   ============================================================ */
+
+.yield-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  text-align: left;
+  margin-top: 16px;
+}
+
+.yield-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.yield-form .form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.yield-form .form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* ============================================================
+   Labels
+   ============================================================ */
+
+.yield-predictor-container label {
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* ============================================================
+   Inputs & Selects
+   ============================================================ */
+
+.yield-predictor-container input,
+.yield-predictor-container select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+  box-sizing: border-box;
+}
+
+.yield-predictor-container input:hover,
+.yield-predictor-container select:hover {
+  border-color: #94a3b8;
+}
+
+.yield-predictor-container input:focus,
+.yield-predictor-container select:focus {
+  border-color: #22c55e;
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.yield-predictor-container input::placeholder {
+  color: #94a3b8;
+}
+
+/* ============================================================
+   Error Box
+   ============================================================ */
+
 .yield-error-box {
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: #fef2f2;
-  color: #dc2626;
+  margin-bottom: 18px;
+  padding: 13px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff7f7;
+  color: #b91c1c;
   font-size: 0.9rem;
 }
 
-/* Result block */
+/* ============================================================
+   Action Buttons
+   ============================================================ */
+
+.yield-predictor-container .action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  min-height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.yield-predictor-container .action-btn:hover:not(:disabled) {
+  background: #15803d;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(22, 163, 74, 0.2);
+}
+
+.yield-predictor-container .action-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.yield-predictor-container .action-btn:disabled {
+  background: #9ca3af;
+  color: #ffffff;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.yield-predictor-container .action-btn.secondary {
+  background: #64748b;
+}
+
+.yield-predictor-container .action-btn.secondary:hover:not(:disabled) {
+  background: #475569;
+}
+
+/* ============================================================
+   Result Block
+   ============================================================ */
+
 .yield-result-block {
   text-align: center;
-  padding: 24px 0 8px;
+  margin-top: 24px;
+  padding: 24px 20px 18px;
+  border: 1px solid #bbf7d0;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    #f0fdf4 0%,
+    #ecfdf5 100%
+  );
 }
 
 .yield-result-block .yield-result {
-  font-size: 1.2rem;
-  color: #0f172a;
-  margin-bottom: 12px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #14532d;
+  margin: 0 0 12px;
 }
 
 .yield-result-block .yield-updated {
   display: flex;
   justify-content: center;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  color: #64748b;
+  font-size: 0.85rem;
 }
 
-/* ---- Responsive ---- */
-@media (max-width: 600px) {
-  .yield-predictor-container {
-    padding: 32px 20px 28px;
-  }
+/* ============================================================
+   Spinner
+   ============================================================ */
 
-  .yield-form-title {
-    font-size: 1.25rem;
-  }
-}
-
-/* ---- Dark theme support ---- */
-.theme-dark .yield-predictor-page {
-  background: linear-gradient(135deg, #0f1f14 0%, #0a1a10 100%);
-}
-
-.theme-dark .yield-predictor-container {
-  background: #1e293b;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-}
-
-.theme-dark .yield-form-title {
-  color: #f1f5f9;
-}
-
-.theme-dark .yield-predictor-back-btn {
-  background: #334155;
-  color: #94a3b8;
-}
-
-.theme-dark .yield-predictor-back-btn:hover,
-.theme-dark .yield-predictor-back-btn:focus-visible {
-  background: #475569;
-  color: #f1f5f9;
-}
-
-/* Spinner */
 .spinner {
   display: inline-block;
   width: 18px;
@@ -145,5 +291,202 @@
 }
 
 @keyframes yield-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
+   Dark Theme
+   ============================================================ */
+
+.theme-dark .yield-predictor-page {
+  background:
+    radial-gradient(
+      circle at 10% 10%,
+      rgba(34, 197, 94, 0.08),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 90% 20%,
+      rgba(16, 185, 129, 0.06),
+      transparent 28%
+    ),
+    linear-gradient(
+      135deg,
+      #0b1220 0%,
+      #0f1f14 50%,
+      #0a1a10 100%
+    );
+}
+
+.theme-dark .yield-predictor-container {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.theme-dark .yield-form-title {
+  color: #f1f5f9;
+}
+
+.theme-dark .yield-form-title .inline-icon {
+  color: #22c55e;
+}
+
+/* Dark Back Button */
+
+.theme-dark .yield-predictor-back-btn {
+  background: #334155;
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .yield-predictor-back-btn:hover,
+.theme-dark .yield-predictor-back-btn:focus-visible {
+  background: #475569;
+  color: #f1f5f9;
+  border-color: #22c55e;
+}
+
+/* Dark Error */
+
+.theme-dark .yield-error-box {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #fca5a5;
+}
+
+/* Dark Result */
+
+.theme-dark .yield-result-block {
+  border-color: rgba(34, 197, 94, 0.25);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(34, 197, 94, 0.08),
+      rgba(16, 185, 129, 0.06)
+    );
+}
+
+.theme-dark .yield-result-block .yield-result {
+  color: #bbf7d0;
+}
+
+.theme-dark .yield-result-block .yield-updated {
+  color: #94a3b8;
+}
+
+/* Dark Labels */
+
+.theme-dark .yield-predictor-container label {
+  color: #e2e8f0;
+}
+
+/* Dark Inputs */
+
+.theme-dark .yield-predictor-container input,
+.theme-dark .yield-predictor-container select {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.theme-dark .yield-predictor-container input:hover,
+.theme-dark .yield-predictor-container select:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .yield-predictor-container input:focus,
+.theme-dark .yield-predictor-container select:focus {
+  border-color: #22c55e;
+  background: #0f172a;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+
+.theme-dark .yield-predictor-container input::placeholder {
+  color: #64748b;
+}
+
+/* Dark Buttons */
+
+.theme-dark .yield-predictor-container .action-btn {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.theme-dark .yield-predictor-container .action-btn:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.theme-dark .yield-predictor-container .action-btn:disabled {
+  background: #4b5563;
+  color: #9ca3af;
+}
+
+.theme-dark .yield-predictor-container .action-btn.secondary {
+  background: #4b5563;
+}
+
+.theme-dark .yield-predictor-container .action-btn.secondary:hover:not(:disabled) {
+  background: #6b7280;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+
+@media (max-width: 700px) {
+  .yield-predictor-page {
+    padding: 32px 14px 50px;
+  }
+
+  .yield-predictor-container {
+    padding: 36px 22px 30px;
+    border-radius: 20px;
+  }
+
+  .yield-form {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .yield-form .form-group.full-width {
+    grid-column: auto;
+  }
+
+  .yield-form .form-actions {
+    grid-column: auto;
+    flex-direction: column;
+  }
+
+  .yield-predictor-container .action-btn {
+    width: 100%;
+  }
+
+  .yield-form-title {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .yield-predictor-page {
+    padding: 20px 10px 40px;
+  }
+
+  .yield-predictor-container {
+    padding: 32px 16px 26px;
+    border-radius: 18px;
+  }
+
+  .yield-form-title {
+    font-size: 1.2rem;
+  }
+
+  .yield-predictor-back-btn {
+    top: 14px;
+    right: 14px;
+    width: 34px;
+    height: 34px;
+  }
 }

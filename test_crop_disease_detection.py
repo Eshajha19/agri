@@ -2,7 +2,7 @@ import io
 
 from PIL import Image
 
-from backend.routers.platform import _analyse_crop_disease_locally, _normalise_disease_key
+from backend.disease_rules import _analyse_crop_disease_locally, _normalise_disease_key
 
 
 def _make_solid_image(color):

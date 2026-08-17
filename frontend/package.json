@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@floating-ui/react": "^0.27.19",
     "@jitsi/react-sdk": "^1.4.4",
     "@react-three/drei": "^10.7.7",

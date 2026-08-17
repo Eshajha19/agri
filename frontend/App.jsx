@@ -97,6 +97,7 @@ import {
 const Weather = React.lazy(() => import("./Weather"));
 const FeatureDriftMonitor = React.lazy(() => import("./FeatureDriftMonitor"));
 import VoiceAssistant from "./VoiceAssistant";
+import VoiceMicWidget from "./VoiceMicWidget";
 
 /**
  * Thin wrapper so SustainabilityAnalytics (designed as a modal) works as a
@@ -317,6 +318,7 @@ function App() {
   };
 
   const { i18n } = useTranslation();
+  const { t } = useTranslation();
   const [preferredLang, setPreferredLang] = useState(() => {
     return getStoredLanguagePreference() || getInitialLanguage();
   });
@@ -834,7 +836,7 @@ useEffect(() => {
 
       {isOffline && (
         <div className="offline-banner" role="alert">
-          You are currently offline. Running in offline mode using local data.
+          {t("alerts.offline")}
         </div>
       )}
 
@@ -847,11 +849,11 @@ useEffect(() => {
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
-          <li><NavLink to="/" onClick={() => setIsOpen(false)}>Home</NavLink></li>
-          <li><NavLink to="/about" onClick={() => setIsOpen(false)}>About</NavLink></li>
-          <li><NavLink to="/how-it-works" onClick={() => setIsOpen(false)}>How It Works</NavLink></li>
-          <li><NavLink to="/crop-guide" onClick={() => setIsOpen(false)}> Crop Guide</NavLink></li>
-          <li><NavLink to="/resources" onClick={() => setIsOpen(false)}>Resources</NavLink></li>
+          <li><NavLink to="/" onClick={() => setIsOpen(false)}>{t("nav.home")}</NavLink></li>
+          <li><NavLink to="/about" onClick={() => setIsOpen(false)}>{t("nav.about")}</NavLink></li>
+          <li><NavLink to="/how-it-works" onClick={() => setIsOpen(false)}>{t("nav.howItWorks")}</NavLink></li>
+          <li><NavLink to="/crop-guide" onClick={() => setIsOpen(false)}> {t("nav.cropGuide")}</NavLink></li>
+          <li><NavLink to="/resources" onClick={() => setIsOpen(false)}>{t("nav.resources")}</NavLink></li>
         </ul>
 
         <div className="nav-right">
@@ -866,7 +868,7 @@ useEffect(() => {
             className={`more-menu-toggle ${showMoreMenu ? 'active' : ''}`}
             aria-label="More Options"
           >
-            <span className="notranslate">More</span>
+            <span className="notranslate">{t("menu.more")}</span>
             <FaChevronDown className="chevron" />
           </button>
 
@@ -874,7 +876,7 @@ useEffect(() => {
             <div className="more-dropdown" onClick={(e) => e.stopPropagation()} role="menu">
               <div className="dropdown-links">
                 <div className="language-selector-section">
-                  <label className="language-label">Language:</label>
+                  <label className="language-label">{t("nav.language") || "Language"}:</label>
                   <LanguageDropdown
                     options={LANGUAGE_OPTIONS}
                     value={preferredLang}
@@ -891,13 +893,13 @@ useEffect(() => {
                   />
                 </div>
                 <div className="theme-selector-section">
-                  <span className="theme-selector-label">Theme:</span>
+                  <span className="theme-selector-label">{t("nav.theme") || "Theme"}:</span>
                   <div className="theme-option-grid" role="group" aria-label="Theme selection">
-                    {[
-                      { value: "light", label: "Light", icon: "☀️" },
-                      { value: "dark", label: "Dark", icon: "🌙" },
-                      { value: "night", label: "Night Light", icon: "🌇" },
-                    ].map((option) => (
+                      {[
+                        { value: "light", label: t("theme.light"), icon: "☀️" },
+                        { value: "dark", label: t("theme.dark"), icon: "🌙" },
+                        { value: "night", label: t("theme.night"), icon: "🌇" },
+                      ].map((option) => (
                       <button
                         key={option.value}
                         type="button"
@@ -911,9 +913,9 @@ useEffect(() => {
                     ))}
                   </div>
                 </div>
-                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> Voice Assistant</Link>
-                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> Myth Checker</Link>
-                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> Crop Comparison</Link>
+                <Link to="/voice-assistant" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMicrophone /> {t("menu.voiceAssistant")}</Link>
+                <Link to="/myth-checker" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaMedal /> {t("menu.mythChecker")}</Link>
+                <Link to="/crop-comparison" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaLeaf /> {t("menu.cropComparison")}</Link>
                 <div className="performance-toggle-section">
                   <button
                     className={`lite-mode-toggle ${liteMode ? 'active' : ''}`}
@@ -922,26 +924,26 @@ useEffect(() => {
                   >
                     <div className="toggle-info">
                       <FaBolt className="zap-icon" />
-                      <span>Lite Mode {liteMode ? "ON" : "OFF"}</span>
+                      <span>{t("menu.liteMode")} {liteMode ? t("menu.liteModeOn") : t("menu.liteModeOff")}</span>
                     </div>
                     <div className="toggle-switch">
                       <div className="switch-handle" />
                     </div>
                   </button>
                 </div>
-                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> Dashboard</Link>
+                <Link to="/dashboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTachometerAlt /> {t("nav.dashboard")}</Link>
                 {userData?.role === "admin" && (
-                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Feedback Admin</Link>
+                  <Link to="/admin/feedback" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> {t("menu.feedbackAdmin")}</Link>
                 )}
-                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> Profile settings</Link>
-                <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> Community</Link>
-                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />Leaderboard</Link>
-                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> Referrals</Link>
-                <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> Risk Index</Link>
-                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> Farm Finance</Link>
-                <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> Glossary</Link>
-                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Feature Drift Monitor</Link>
-                <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> Contact</Link>
+                <Link to="/profile-settings" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaCog /> {t("menu.profileSettings")}</Link>
+                <Link to="/community" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaComments /> {t("menu.community")}</Link>
+                <Link to="/leaderboard" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaTrophy />{t("menu.leaderboard")}</Link>
+                <Link to="/referrals" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaUserPlus /> {t("menu.referrals")}</Link>
+                <Link to="/risk-index" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaShieldAlt /> {t("menu.riskIndex")}</Link>
+                <Link to="/farm-finance" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaFileInvoiceDollar /> {t("menu.farmFinance")}</Link>
+                <Link to="/glossary" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaBook /> {t("menu.glossary")}</Link>
+                <Link to="/feature-drift" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> {t("menu.featureDrift")}</Link>
+                <Link to="/contact" onClick={() => setShowMoreMenu(false)} role="menuitem"><FaInfoCircle /> {t("menu.contact")}</Link>
               </div>
             </div>
           )}
@@ -963,9 +965,9 @@ useEffect(() => {
                     </div>
                     <div className="scorecard-body">
                       {[
-                        { label: "🌾 Primary Crop", value: userData.cropType || "N/A" },
-                        { label: "🌐 Language", value: LANGUAGE_OPTIONS.find(l => l.value === (userData.language || preferredLang))?.label || preferredLang },
-                        { label: "📍 Location", value: userData.address || "Fetching..." }
+                        { label: t("scorecard.primaryCrop"), value: userData.cropType || t("scorecard.na") },
+                        { label: t("scorecard.language"), value: LANGUAGE_OPTIONS.find(l => l.value === (userData.language || preferredLang))?.label || preferredLang },
+                        { label: t("scorecard.location"), value: userData.address || t("scorecard.fetching") }
                       ].map((item, i) => (
                         <div key={i} className="score-item">
                           <label>{item.label}</label>
@@ -974,13 +976,13 @@ useEffect(() => {
                       ))}
                     </div>
                     <div className="scorecard-footer">
-                      <button onClick={handleLogout} className="btn-logout-alt">Sign Out</button>
+                       <button onClick={handleLogout} className="btn-logout-alt">{t("scorecard.signOut")}</button>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <Link to="/login" className="btn-get-started">Get Started</Link>
+              <Link to="/login" className="btn-get-started">{t("nav.getStarted")}</Link>
             )}
           </div>
         </div>
@@ -996,8 +998,8 @@ useEffect(() => {
         <div className="verification-overlay">
           <div className="verification-card">
             <div className="verify-icon">✉️</div>
-            <h2>Verify Your Email</h2>
-            <p>We've sent a link to <b>{user.email}</b>.<br /> Please verify your email to unlock all features.</p>
+            <h2>{t("alerts.verifyEmail")}</h2>
+            <p>{t("alerts.verifyEmailText")} <b>{user.email}</b>.<br /> {t("alerts.verifyEmailButton")}</p>
             <button
               onClick={() => {
                 if (auth.currentUser) {
@@ -1115,6 +1117,7 @@ useEffect(() => {
       </main>
 
       {/* Floating Buttons */}
+      <VoiceMicWidget />
       <Link to="/advisor" className="floating-chat-btn" aria-label="Open AI Advisor Chat">
         <FaComments size={28} aria-hidden="true" />
       </Link>
@@ -1136,9 +1139,9 @@ useEffect(() => {
         </button>
       )}
 
-      {backendStatus === "offline" && (
+              {backendStatus === "offline" && (
         <div className="backend-banner" role="alert">
-          🚨 Backend is currently unavailable. Some features may not work.
+          🚨 {t("alerts.backendUnavailable")}
         </div>
       )}
 

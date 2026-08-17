@@ -99,6 +99,13 @@ class QualityTrendsRequest(BaseModel):
     crop_type: str = Field(..., min_length=1, max_length=50)
     days: int = Field(default=7, ge=1, le=30)
 
+
+class CropDiseaseImageRequest(BaseModel):
+    image_base64: str = Field(..., min_length=10, description="Base64-encoded image data")
+    mime_type: str = Field(..., pattern=r"^image/(jpeg|png|gif|webp)$", description="MIME type of the image")
+    crop_type: Optional[str] = Field(default=None, max_length=50)
+
+
 # Date/Time utilities
 from datetime import datetime, timezone
 
@@ -654,8 +661,10 @@ def predict_yield(data: PredictRequest, request: Request):
             },
         )
     except Exception as e:
-        logger.error("Prediction Error: %s", e)
-        raise HTTPException(status_code=400, detail=safe_detail(e, 400))
+        logger.error("ML prediction failed, falling back to rule-based: %s", e)
+        from yield_utils import predict_yield_rule_based
+        predicted_yield = predict_yield_rule_based(input_data)
+        return {"predicted_ExpYield": float(predicted_yield)}
 
 @app.post("/predict-yield-lag")
 @limiter.limit("5/minute")
@@ -1418,6 +1427,83 @@ async def verify_seed(data: SeedVerifyRequest, request: Request):
         "certified_on": entry["certified_on"],
         "expires_on": entry["expires_on"],
     }
+
+
+@app.post("/api/crop-disease/analyze-image")
+@limiter.limit("5/minute")
+async def analyze_crop_disease_image(request: Request, data: CropDiseaseImageRequest):
+    """
+    Analyze a crop image for diseases using rule-based computer vision.
+
+    This endpoint uses OpenCV-based local analysis as the primary method,
+    ensuring reliable results without depending on external AI services.
+    If GEMINI_API_KEY is configured, Gemini is optionally queried to
+    augment the rule-based result, but the response always contains a
+    valid local-heuristic analysis.
+    """
+    await verify_role(request)
+
+    import base64
+
+    try:
+        image_bytes = base64.b64decode(data.image_base64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data") from exc
+
+    try:
+        from backend.disease_rules import _analyse_crop_disease_locally
+        analysis = _analyse_crop_disease_locally(image_bytes, crop_type=data.crop_type)
+    except Exception as exc:
+        logger.error("Rule-based disease analysis failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Image analysis failed") from exc
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if api_key:
+        try:
+            import httpx
+
+            gemini_url = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"gemini-2.0-flash:generateContent?key={api_key}"
+            )
+            prompt = (
+                "You are an agricultural plant pathologist. Inspect the crop image and return ONLY valid JSON with these keys: "
+                "diseaseKey, disease, confidence, confidenceScore, severity, treatment, prevention, pesticides, organic, cues. "
+                "Use diseaseKey values from this set when possible: healthy, leaf_spot, early_blight, late_blight, powdery_mildew, rust, bacterial_spot, mosaic_virus, downy_mildew, anthracnose, root_rot. "
+                "Keep treatment and prevention concise and practical for farmers."
+            )
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": data.mime_type,
+                                    "data": data.image_base64,
+                                }
+                            },
+                        ]
+                    }
+                ]
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(gemini_url, json=payload)
+
+            if response.status_code == 200:
+                gemini_data = response.json()
+                text = gemini_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if text:
+                    from backend.disease_rules import _extract_json_object, _coerce_backend_disease_result
+                    parsed = _extract_json_object(text)
+                    gemini_result = _coerce_backend_disease_result(parsed, crop_type=data.crop_type)
+                    analysis = {**analysis, **gemini_result, "method": "gemini"}
+        except Exception as exc:
+            logger.warning("Gemini crop disease analysis failed; using local rule-based result: %s", exc)
+
+    return {"success": True, "analysis": analysis}
+
 
 # --- Crop Quality Grading Endpoints ---
 

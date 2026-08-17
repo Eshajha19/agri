@@ -26,11 +26,13 @@ import {
   Download,
   MessageSquareText,
   Sparkles,
+  Mail,
 } from "lucide-react";
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import "./FarmingCalendar.css";
 import Loader from "./Loader";
+import { sendDailyReminderEmail } from "./services/emailService";
 
 const ACTIVITY_TYPES = [
   { id: "sowing", label: "Sowing", icon: <Sprout size={16} />, color: "#10b981" },
@@ -251,6 +253,7 @@ const FarmingCalendar = ({ userData }) => {
   const [generatorForm, setGeneratorForm] = useState(() => createEmptyGenerator(userData));
   const [statusMessage, setStatusMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const statusTimerRef = useRef(null);
 
   const effectiveUserId = userData?.uid || auth?.currentUser?.uid || userData?.id || "";
@@ -582,6 +585,40 @@ const FarmingCalendar = ({ userData }) => {
     notify("Opened the SMS composer.");
   };
 
+  const handleSendDailyReminder = async () => {
+    const recipientEmail = userData?.email || auth?.currentUser?.email;
+    if (!recipientEmail) {
+      notify("No email address found. Please update your profile.");
+      return;
+    }
+
+    if (activities.length === 0) {
+      notify("No activities to remind about.");
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const upcomingReminders = sortActivities(activities)
+        .filter((item) => !item.completed)
+        .slice(0, 8);
+
+      await sendDailyReminderEmail({
+        toEmail: recipientEmail,
+        userName: userData?.displayName || auth?.currentUser?.email?.split("@")[0] || "Farmer",
+        activities,
+        upcomingReminders,
+      });
+
+      notify("Daily reminder email sent successfully.");
+    } catch (error) {
+      console.error("Error sending daily reminder email:", error);
+      notify(error.message || "Unable to send the reminder email.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const templatePreview = CROP_REMINDER_TEMPLATES[generatorForm.cropType] || CROP_REMINDER_TEMPLATES[DEFAULT_CROP_TYPE];
 
   return (
@@ -654,6 +691,14 @@ const FarmingCalendar = ({ userData }) => {
                   </button>
                   <button className="secondary-btn" onClick={handleSmsSync} type="button">
                     <MessageSquareText size={16} /> SMS Draft
+                  </button>
+                  <button
+                    className="secondary-btn"
+                    onClick={handleSendDailyReminder}
+                    type="button"
+                    disabled={sendingEmail}
+                  >
+                    {sendingEmail ? "Sending..." : <><Mail size={16} /> Email Reminder</>}
                   </button>
                 </div>
                 <div className="generator-preview">

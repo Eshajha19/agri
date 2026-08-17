@@ -1,17 +1,133 @@
 {
-  "nav": {"home": "ଘରେ","advisor": "ପରାମର୍ଶଦାତା","howItWorks": "ଏଟି କିଭାବେ କାମ କରେ","cropGuide": "ଫସଲ ଗାଇଡ","dashboard": "ଡ୍ୟାଶବୋର୍ଡ","contributors": "ଅବଦାନକାରୀ","getStarted": "ଆରମ୍ଭ କରନ୍ତୁ"},
-  "hero": {"title": "ଫସଲ ସାଥୀକୁ ସ୍ୱାଗତ","subtitle": "ଆପଣଙ୍କ AI-ଚାଳିତ ଚାଷ ସାଥୀ","cta": "ଆରମ୍ଭ କରନ୍ତୁ"},
-  "home": {"welcome": "ଫସଲ ସାଥୀକୁ ସ୍ୱାଗତ","farmingAssistant": "ଆପଣଙ୍କ AI-ଚାଳିତ ଚାଷ ସହାୟକ"},
-  "advisor": {"title": "ପରାମର୍ଶଦାତା","description": "ଫସଲ ପରିଚାଳନା, ପାଗ ଏବଂ କୃଷି ଅଭ୍ୟାସ ଉପରେ ବିଶେଷଜ୍ଞ ପରାମର୍ଶ ପାଆନ୍ତୁ"},
-  "dashboard": {"title": "ଡ୍ୟାଶବୋର୍ଡ","description": "ଆପଣଙ୍କ ଜମି ତଦାରଖ କରନ୍ତୁ ଏବଂ ଗୁରୁତ୍ୱପୂର୍ଣ୍ଣ ମେଟ୍ରିକ୍ସ ଟ୍ରାକ କରନ୍ତୁ"},
-  "cropGuide": {"title": "ଫସଲ ଗାଇଡ","description": "ବିଭିନ୍ନ ଫସଲ ଏବଂ ତାହାର ଆବଶ୍ୟକତା ବିଷୟରେ ଜାଣନ୍ତୁ"},
-  "profitCalculator": {"title": "ଲାଭ ପରିକଳନା","description": "ଆପଣଙ୍କ ଚାଷ ଲାଭ ଗଣନା କରନ୍ତୁ"},
-  "farmingMap": {"title": "ଚାଷ ମାନଚିତ୍ର","description": "ଇଣ୍ଟରାକ୍ଟିଭ ମାନଚିତ୍ରେ ଆପଣଙ୍କ ଜମି ଦେଖନ୍ତୁ"},
-  "schemes": {"title": "ସରକାରୀ ଯୋଜନା","description": "ଚାଷୀଙ୍କ ପାଇଁ ସରକାରୀ ଯୋଜନା ଅନ୍ବେଷଣ କରନ୍ତୁ"},
-  "resources": {"title": "ଉତ୍ସ","description": "ସହାୟକ ଚାଷ ଉତ୍ସକୁ ଆକ୍ସେସ କରନ୍ତୁ"},
-  "marketPrices": {"title": "ବାଜାର ମୂଲ୍ୟ","description": "ଫସଲର ବର୍ତମାନ ବଜାର ମୂଲ୍ୟ ଯାଞ୍ଚ କରନ୍ତୁ"},
-  "contributors": {"title": "ଅବଦାନକାରୀ","description": "ଆମ ଦଳକୁ ଶୁଣନ୍ତୁ"},
-  "login": {"title": "ଲଗ୍‌ ଇନ","email": "ଖାତା","password": "ସଙ୍କେତ","loginButton": "ଲଗ୍‌ ଇନ","signUp": "ସୁପ୍ଫୋଲ୍ଡ","noAccount": "ଖାତା ନାହିଁ କୋ?","haveAccount": "ଏହାପୂର୍ବରୁ ଖାତା ଅଛି?"},
-  "profileSetup": {"title": "ଆପଣଙ୍କ ପ୍ରୋଫାଇଲ ସମ୍ପୂର୍ଣ୍ଣ କରନ୍ତୁ","subtitle": "ଆପଣଙ୍କ ଫସଲ ସାଥୀ ଅଭିଜ୍ଞତା ବ୍ୟକ୍ତିଗତ କରିବାରେ ମଦଦ କରନ୍ତୁ","name": "ଚାଷୀର ନାମ","language": "ପସନ୍ଦର ଭାଷା","cropType": "ଫସଲ ପ୍ରକାର","location": "ଅବସ୍ଥାନ","submit": "ପ୍ରୋଫାଇଲ ସାଞ୍ଚାଇ ରଖନ୍ତୁ","required": "ଦୟାକରି ସମସ୍ତ ବିବରଣ ପୂରଣ କରନ୍ତୁ।"},
-  "common": {"loading": "ଲୋଡ୍ ହୋଇଛି...","error": "ତ୍ରୁଟି","success": "ସଫଳ","cancel": "ରଦ୍ଦ କରନ୍ତୁ","save": "ସାଞ୍ଚାଇ ରଖନ୍ତୁ","delete": "ମଧୁଦଵାଯ ଦଆନ୍ତୁ","edit": "ସମ୍ପାଦନ କରନ୍ତୁ","close": "ବନ୍ଦ କରନ୍ତୁ"}
+  "nav": {
+    "home": "ଘରେ",
+    "about": "ଆମର ବିଷୟରେ",
+    "advisor": "ପରାମର୍ଶଦାତା",
+    "howItWorks": "ଏଟି କିଭାବେ କାମ କରେ",
+    "cropGuide": "ଫସଲ ଗାଇଡ",
+    "dashboard": "ଡ୍ୟାଶବୋର୍ଡ",
+    "resources": "ଉତ୍ସ",
+    "contributors": "ଅବଦାନକାରୀ",
+    "getStarted": "ଆରମ୍ଭ କରନ୍ତୁ",
+    "language": "Language",
+    "theme": "Theme"
+  },
+  "hero": {
+    "title": "ଫସଲ ସାଥୀକୁ ସ୍ୱାଗତ",
+    "subtitle": "ଆପଣଙ୍କ AI-ଚାଳିତ ଚାଷ ସାଥୀ",
+    "cta": "ଆରମ୍ଭ କରନ୍ତୁ"
+  },
+  "home": {
+    "welcome": "ଫସଲ ସାଥୀକୁ ସ୍ୱାଗତ",
+    "farmingAssistant": "ଆପଣଙ୍କ AI-ଚାଳିତ ଚାଷ ସହାୟକ"
+  },
+  "advisor": {
+    "title": "ପରାମର୍ଶଦାତା",
+    "description": "ଫସଲ ପରିଚାଳନା, ପାଗ ଏବଂ କୃଷି ଅଭ୍ୟାସ ଉପରେ ବିଶେଷଜ୍ଞ ପରାମର୍ଶ ପାଆନ୍ତୁ"
+  },
+  "dashboard": {
+    "title": "ଡ୍ୟାଶବୋର୍ଡ",
+    "description": "ଆପଣଙ୍କ ଜମି ତଦାରଖ କରନ୍ତୁ ଏବଂ ଗୁରୁତ୍ୱପୂର୍ଣ୍ଣ ମେଟ୍ରିକ୍ସ ଟ୍ରାକ କରନ୍ତୁ"
+  },
+  "cropGuide": {
+    "title": "ଫସଲ ଗାଇଡ",
+    "description": "ବିଭିନ୍ନ ଫସଲ ଏବଂ ତାହାର ଆବଶ୍ୟକତା ବିଷୟରେ ଜାଣନ୍ତୁ"
+  },
+  "profitCalculator": {
+    "title": "ଲାଭ ପରିକଳନା",
+    "description": "ଆପଣଙ୍କ ଚାଷ ଲାଭ ଗଣନା କରନ୍ତୁ"
+  },
+  "farmingMap": {
+    "title": "ଚାଷ ମାନଚିତ୍ର",
+    "description": "ଇଣ୍ଟରାକ୍ଟିଭ ମାନଚିତ୍ରେ ଆପଣଙ୍କ ଜମି ଦେଖନ୍ତୁ"
+  },
+  "schemes": {
+    "title": "ସରକାରୀ ଯୋଜନା",
+    "description": "ଚାଷୀଙ୍କ ପାଇଁ ସରକାରୀ ଯୋଜନା ଅନ୍ବେଷଣ କରନ୍ତୁ"
+  },
+  "resources": {
+    "title": "ଉତ୍ସ",
+    "description": "ସହାୟକ ଚାଷ ଉତ୍ସକୁ ଆକ୍ସେସ କରନ୍ତୁ"
+  },
+  "marketPrices": {
+    "title": "ବଜାର ମୂଲ୍ୟ",
+    "description": "ଫସଲର ବର୍ତ୍ତମାନ ବଜାର ମୂଲ୍ୟ ଯାଞ୍ଚ କରନ୍ତୁ"
+  },
+  "marketInformation": {
+    "title": "ବଜାର ସୂଚନା",
+    "description": "ବଜାର ସୂଚନା ଏବଂ ମୂଲ୍ୟ ପାଆନ୍ତୁ"
+  },
+  "contributors": {
+    "title": "ଅବଦାନକାରୀ",
+    "description": "ଆମ ଦଳକୁ ଶୁଣନ୍ତୁ"
+  },
+  "login": {
+    "title": "ଲଗ୍‌ ଇନ",
+    "email": "ଇମେଲ୍",
+    "password": "ପାସ୍‌ୱାର୍ଡ୍",
+    "loginButton": "ଲଗ୍‌ ଇନ",
+    "signUp": "ସାଇନ୍ ଅପ୍",
+    "noAccount": "ଖାତା ନାହିଁ କୋ?",
+    "haveAccount": "ଏହାପୂର୍ବରୁ ଖାତା ଅଛି?"
+  },
+  "profileSetup": {
+    "title": "ଆପଣଙ୍କ ପ୍ରୋଫାଇଲ ସମ୍ପୂର୍ଣ୍ଣ କରନ୍ତୁ",
+    "subtitle": "ଆପଣଙ୍କ ଫସଲ ସାଥୀ ଅଭିଜ୍ଞତା ବ୍ୟକ୍ତିଗତ କରିବାରେ ମଦଦ କରନ୍ତୁ",
+    "name": "ଚାଷୀର ନାମ",
+    "language": "ପସନ୍ଦର ଭାଷା",
+    "cropType": "ଫସଲ ପ୍ରକାର",
+    "location": "ଅବସ୍ଥାନ",
+    "submit": "ପ୍ରୋଫାଇଲ ସଞ୍ଚୟ କରନ୍ତୁ",
+    "required": "ଦୟାକରି ସମସ୍ତ ବିବରଣ ପୂରଣ କରନ୍ତୁ।"
+  },
+  "menu": {
+    "more": "ଆହୁରି",
+    "voiceAssistant": "ଭଏସ୍ ଆସିଷ୍ଟାଣ୍ଟ",
+    "mythChecker": "ଭୁଲ୍ ପରୀକ୍ଷକ",
+    "cropComparison": "ଫସଲ ତୁଲନା",
+    "liteModeOn": "ଲାଇଟ୍ ମୋଡ୍ ଅନ୍",
+    "liteModeOff": "ଲାଇଟ୍ ମୋଡ୍ ଅଫ୍",
+    "dashboard": "ଡ୍ୟାଶବୋର୍ଡ",
+    "feedbackAdmin": "ଫିଡବ୍ଯାକ୍ ଆଡମିନ୍",
+    "profileSettings": "ପ୍ରୋଫାଇଲ୍ ସେଟିଂସ୍",
+    "community": "କମ୍ୟୁନିଟି",
+    "leaderboard": "ଲୀଡରବୋର୍ଡ",
+    "referrals": "ରେଫରାଲ୍",
+    "riskIndex": "ରିସ୍କ୍ ଇଣ୍ଡେକ୍ସ୍",
+    "farmFinance": "ଫାର୍ମ୍ ଫାଇନାନ୍ସ୍",
+    "glossary": "ଶବ୍ଦାବଳୀ",
+    "featureDrift": "ଫିଚର୍ ଡ୍ରିଫ୍ଟ୍ ମନିଟର୍",
+    "contact": "ଯୋଗାଯୋଗ",
+    "liteMode": "Lite Mode"
+  },
+  "scorecard": {
+    "primaryCrop": "ପ୍ରାଥମିକ ଫସଲ",
+    "language": "ଭାଷା",
+    "location": "ଅବସ୍ଥାନ",
+    "na": "ଅପ୍ୟଯିକ୍ତ ନୁହେଁ",
+    "fetching": "ଲୋଡ୍ ହେଉଛି...",
+    "signOut": "ସାଇନ୍ ଆଉଟ୍"
+  },
+  "alerts": {
+    "offline": "ଆପଣ ବର୍ତ୍ତମାନ ଅଫଲାଇନ୍ ଅନ୍ତି। ସ୍ଥାନିକ ଡାଟା ବ୍ୟବହାର କରି ଅଫଲାଇନ୍ ମୋଡ୍ ରେ ଚାଲୁ କରୁଛନ୍ତି।",
+    "backendUnavailable": "ବ୍ୟାକଏନ୍ଡ ବର୍ତ୍ତମାନ ଉପଲବ୍ଧ ନାହିଁ। କିଛି ବೈଶିଷ୍ଟ୍ୟ କାମ କରିବ ନାହିଁ।",
+    "verifyEmail": "ଆପଣଙ୍କ ଇମେଲ୍ ଯଞ୍ଚ କରନ୍ତୁ",
+    "verifyEmailText": "ଆମେ ଆପଣଙ୍କୁ ଏକ ଲିଙ୍କ ପଠାଇଛୁ",
+    "verifyEmailButton": "ମୁଁ ଆମର ଇମେଲ୍ ଯଞ୍ଚ କରିଛି"
+  },
+  "theme": {
+    "light": "ଲାଇଟ୍",
+    "dark": "ଡାର୍କ୍",
+    "night": "ନାଇଟ୍ ଲାଇଟ୍"
+  },
+  "common": {
+    "loading": "ଲୋଡ୍ ହେଉଛି...",
+    "error": "ତୃଟି",
+    "success": "ସଫଳ",
+    "cancel": "ରଦ୍ଦ କରନ୍ତୁ",
+    "save": "ସଞ୍ଚୟ କରନ୍ତୁ",
+    "delete": "ଡିଲିଟ୍ କରନ୍ତୁ",
+    "edit": "ସମ୍ପାଦନା କରନ୍ତୁ",
+    "close": "ବନ୍ଦ କରନ୍ତୁ"
+  }
 }

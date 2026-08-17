@@ -1,63 +1,70 @@
-const RULE_BASED_CROP_BASE_YIELD_KG_PER_HA = {
-  rice: 3200,
-  paddy: 3200,
-  wheat: 3800,
-  maize: 2800,
-  corn: 2800,
-  cotton: 550,
-  sugarcane: 72000,
-  potato: 22000,
-  tomato: 25000,
-  onion: 16000,
-  soybean: 1800,
-  groundnut: 1800,
-  mustard: 1200,
-  chickpea: 1100,
-  pigeonpea: 900,
-  barley: 3000,
-  millet: 1500,
-  bajra: 1200,
-  jowar: 1400,
-  lentil: 1000,
-  apple: 15000,
-  banana: 30000,
-  mango: 12000,
-  grapes: 20000,
-  orange: 15000,
-};
-
-const RULE_BASED_SEASON_MULTIPLIER = {
-  kharif: 1.1,
-  rabi: 0.95,
-  zaid: 0.85,
-};
-
 export function predictYieldRuleBased(inputData = {}) {
-  const crop = String(inputData.Crop || inputData.crop || "").trim().toLowerCase();
-  const season = String(inputData.Season || inputData.season || "").trim().toLowerCase();
-  const area = Number(inputData.CropCoveredArea || inputData.cropCoveredArea || 1);
-  const height = Number(inputData.CHeight || inputData.cHeight || 0);
-  const irriCount = Number(inputData.IrriCount || inputData.irriCount || 0);
-  const waterCov = Number(inputData.WaterCov || inputData.waterCov || 0);
-  const cNext = String(inputData.CNext || inputData.cNext || "").trim().toLowerCase();
-  const cLast = String(inputData.CLast || inputData.cLast || "").trim().toLowerCase();
+  const crop = String(inputData.Crop || inputData.crop || "").trim();
+  const season = String(inputData.Season || inputData.season || "").trim();
+  const cropHeight = Number(inputData.CHeight || inputData.cHeight || inputData.cropHeight || 0);
+  const transplantingMethod = String(inputData.CTransp || inputData.cTransp || inputData.transplantingMethod || "").trim();
+  const irrigationType = String(inputData.IrriType || inputData.irriType || inputData.irrigationType || "").trim();
+  const irrigationSource = String(inputData.IrriSource || inputData.irriSource || inputData.irrigationSource || "").trim();
+  const irrigationCount = Number(inputData.IrriCount || inputData.irriCount || inputData.irrigationCount || 0);
+  const waterCoverage = Number(inputData.WaterCov || inputData.waterCov || inputData.waterCoverage || 0);
 
-  const baseYield = RULE_BASED_CROP_BASE_YIELD_KG_PER_HA[crop] || 2500;
-  const seasonMult = RULE_BASED_SEASON_MULTIPLIER[season] || 1.0;
-  const irriMult = 1.0 + Math.min(irriCount, 6) * 0.03;
-  const waterMult = 1.0 + (waterCov / 100) * 0.15;
+  let yieldValue = 18;
 
-  let heightMult = 1.0;
-  if (height > 0) {
-    if (height < 30) heightMult = 0.85;
-    else if (height > 120) heightMult = 1.1;
+  const cropAdjustment = {
+    Paddy: 0,
+    Cotton: -2,
+    Maize: 2,
+    "Bengal Gram": -3,
+    Groundnut: -1,
+    Chillies: -2,
+    "Red Gram": -3
+  };
+
+  yieldValue += cropAdjustment[crop] || 0;
+
+  if (season === "Kharif") {
+    yieldValue += 1;
+  } else if (season === "Rabi") {
+    yieldValue += 0.5;
   }
 
-  let rotationMult = 1.0;
-  if (cLast && cNext && cLast !== cNext) {
-    rotationMult = 1.05;
+  if (cropHeight >= 100) yieldValue += 1.5;
+  else if (cropHeight >= 80) yieldValue += 1;
+  else if (cropHeight >= 60) yieldValue += 0.5;
+  else yieldValue -= 1;
+
+  if (transplantingMethod === "Transplanting") {
+    yieldValue += 1;
   }
 
-  const predicted = baseYield * seasonMult * irriMult * waterMult * heightMult * rotationMult;
-  return Math.round(predicted * 100) / 100;
+  const irrigationAdjustment = {
+    Flood: 1,
+    Sprinkler: 1.5,
+    Drip: 2,
+    Surface: 0.5
+  };
+
+  yieldValue += irrigationAdjustment[irrigationType] || 0;
+
+  const sourceAdjustment = {
+    Groundwater: 0.5,
+    Canal: 1,
+    Rainfed: -2,
+    Well: 0.5,
+    Tubewell: 1
+  };
+
+  yieldValue += sourceAdjustment[irrigationSource] || 0;
+
+  if (irrigationCount >= 8) yieldValue += 0.8;
+  else if (irrigationCount >= 5) yieldValue += 0.4;
+  else if (irrigationCount < 3) yieldValue -= 1;
+
+  if (waterCoverage >= 85) yieldValue += 1;
+  else if (waterCoverage >= 70) yieldValue += 0.5;
+  else if (waterCoverage < 50) yieldValue -= 2;
+
+  yieldValue = Math.max(5, Math.min(yieldValue, 40));
+
+  return Number(yieldValue.toFixed(2));
 }

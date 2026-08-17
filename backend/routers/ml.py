@@ -121,8 +121,12 @@ async def predict_yield(data: PredictRequest, request: Request):
         logger.error("Prediction input value error: %s", e, exc_info=True)
         raise HTTPException(status_code=400, detail=f"Invalid input values for prediction: {e}")
     except Exception as e:
-        logger.error("Prediction processing error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred while processing the prediction request.")
+        logger.error("ML prediction failed, falling back to rule-based: %s", e, exc_info=True)
+        from yield_utils import predict_yield_rule_based
+        predicted_yield = predict_yield_rule_based(input_data)
+        explanation = _build_prediction_explanation(predicted_yield)
+        explanation["model"] = "rule_based_fallback"
+        return {"predicted_ExpYield": float(predicted_yield), "explanation": explanation}
 
 @router.post("/predict-yield-lag")
 async def predict_yield_lag(payload: YieldInput, request: Request):

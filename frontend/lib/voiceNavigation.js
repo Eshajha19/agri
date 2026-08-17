@@ -19,8 +19,10 @@ function normalizeTranscript(transcript) {
 
 const NAV_KEYWORDS = [
   // path, array of keywords/phrases to match
+  { path: "/", keywords: ["open home", "go to home", "home page", "home"] },
   { path: "/dashboard", keywords: ["open dashboard", "go to dashboard", "dashboard", "open dash"] },
-  { path: "/about", keywords: ["open about", "go to about", "about"] },
+  { path: "/about", keywords: ["open about", "go to about", "about us", "about"] },
+  { path: "/how-it-works", keywords: ["open how it works", "go to how it works", "how it works"] },
   { path: "/resources", keywords: ["open resources", "go to resources", "resources"] },
   { path: "/crop-guide", keywords: ["open crop guide", "go to crop guide", "crop guide", "cropguid"] },
   { path: "/community", keywords: ["open community", "go to community", "community"] },
@@ -35,6 +37,26 @@ const NAV_KEYWORDS = [
   { path: "/pest-detection", keywords: ["open pest detection", "go to pest detection", "pest detection"] },
   { path: "/equipment-management", keywords: ["open equipment management", "go to equipment management", "equipment management"] },
   { path: "/helpline", keywords: ["open helpline", "go to helpline", "helpline"] },
+  { path: "/advisor", keywords: ["open advisor", "go to advisor", "advisor"] },
+  { path: "/calendar", keywords: ["open calendar", "go to calendar", "calendar"] },
+  { path: "/market-prices", keywords: ["open market prices", "go to market prices", "market prices", "marketprice", "open mi", "go to mi", "mi", "open market information", "go to market information", "market information"] },
+  { path: "/farming-map", keywords: ["open farming map", "go to farming map", "farming map"] },
+  { path: "/profit-calculator", keywords: ["open profit calculator", "go to profit calculator", "profit calculator"] },
+  { path: "/profile-settings", keywords: ["open profile settings", "go to profile settings", "profile settings"] },
+  { path: "/login", keywords: ["open login", "go to login", "login", "sign in"] },
+  { path: "/voice-assistant", keywords: ["open voice assistant", "go to voice assistant", "voice assistant"] },
+  { path: "/blog", keywords: ["open blog", "go to blog", "blog"] },
+  { path: "/crop-planner", keywords: ["open crop planner", "go to crop planner", "crop planner"] },
+  { path: "/risk-index", keywords: ["open risk index", "go to risk index", "risk index"] },
+  { path: "/seed-verifier", keywords: ["open seed verifier", "go to seed verifier", "seed verifier"] },
+  { path: "/pest-calendar", keywords: ["open pest calendar", "go to pest calendar", "pest calendar", "seasonal pest calendar"] },
+  { path: "/yield-predictor", keywords: ["open yield predictor", "go to yield predictor", "yield predictor"] },
+  { path: "/smart-farm-autopilot", keywords: ["open smart farm autopilot", "go to smart farm autopilot", "smart farm autopilot"] },
+  { path: "/sustainability-analytics", keywords: ["open sustainability analytics", "go to sustainability analytics", "sustainability analytics"] },
+  { path: "/spray-scheduler", keywords: ["open spray scheduler", "go to spray scheduler", "spray scheduler"] },
+  { path: "/myth-checker", keywords: ["open myth checker", "go to myth checker", "myth checker"] },
+  { path: "/crop-comparison", keywords: ["open crop comparison", "go to crop comparison", "crop comparison"] },
+  { path: "/insurance-claim", keywords: ["open insurance claim", "go to insurance claim", "insurance claim"] },
 ];
 
 function matchRoute(transcriptNormalized) {

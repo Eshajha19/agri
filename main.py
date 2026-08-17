@@ -400,8 +400,9 @@ async def predict_yield(data: PredictRequest, request: Request):
         try:
             result = ml_router.predict(input_data)
         except Exception as e:
-            logger.exception("ML prediction failed")
-            raise HTTPException(status_code=503, detail=f"ML prediction unavailable: {e}")
+            logger.exception("ML prediction failed, falling back to rule-based")
+            from yield_utils import predict_yield_rule_based
+            result = predict_yield_rule_based(input_data)
 
         return {"predicted_ExpYield": float(result)}
 

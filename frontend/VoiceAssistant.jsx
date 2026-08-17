@@ -289,6 +289,7 @@ const VoiceAssistant = () => {
               <li>Weather alerts</li>
               <li>Yield predictions</li>
               <li>Pest management</li>
+              <li>Market information (MI)</li>
             </ul>
           </div>
         ) : (

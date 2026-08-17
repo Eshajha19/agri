@@ -184,9 +184,9 @@ export default function FarmPlanner3D() {
             aria-label="3D view rotation and zoom controls"
           />
           
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} intensity={1} castShadow />
-          <Environment preset="city" />
+          <ambientLight intensity={0.6} />
+          <pointLight position={[10, 10, 10]} intensity={1.2} castShadow />
+          <directionalLight position={[-10, 10, -5]} intensity={0.8} />
 
           {/* Ground Grid */}
           <Grid 

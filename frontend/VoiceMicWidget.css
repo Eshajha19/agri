@@ -1,0 +1,138 @@
+.voice-mic-widget {
+  position: fixed;
+  bottom: 90px;
+  left: 24px;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-mic-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  position: relative;
+  z-index: 2;
+}
+
+.voice-mic-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+}
+
+.voice-mic-button:active {
+  transform: scale(0.95);
+}
+
+.voice-mic-button.listening {
+  background: linear-gradient(135deg, #4caf50 0%, #43a047 100%);
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.5);
+  animation: mic-pulse-ring 1.5s infinite;
+}
+
+.voice-mic-pulse {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(102, 126, 234, 0.3);
+  z-index: 1;
+  animation: pulse-expand 1.5s infinite;
+  pointer-events: none;
+}
+
+.voice-mic-button.listening + .voice-mic-pulse {
+  background: rgba(76, 175, 80, 0.3);
+}
+
+@keyframes pulse-expand {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.voice-mic-status {
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  animation: fade-in-up 0.2s ease-out;
+  max-width: 200px;
+  text-align: center;
+}
+
+.voice-mic-status.listening {
+  background: rgba(76, 175, 80, 0.9);
+}
+
+.voice-mic-status.processing {
+  background: rgba(102, 126, 234, 0.9);
+}
+
+.voice-mic-error {
+  background: rgba(198, 40, 40, 0.9);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  animation: fade-in-up 0.2s ease-out;
+  max-width: 220px;
+  text-align: center;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .voice-mic-widget {
+    bottom: 80px;
+    left: 16px;
+  }
+
+  .voice-mic-button {
+    width: 48px;
+    height: 48px;
+  }
+
+  .voice-mic-pulse {
+    width: 48px;
+    height: 48px;
+  }
+
+  .voice-mic-status {
+    font-size: 11px;
+    padding: 5px 10px;
+    max-width: 160px;
+  }
+}

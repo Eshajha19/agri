@@ -1,12 +1,16 @@
 {
   "nav": {
     "home": "হোম",
+    "about": "আমাদের কথা",
     "advisor": "উপদেষ্টা",
     "howItWorks": "কিভাবে কাজ করে",
     "cropGuide": "ফসল গাইড",
     "dashboard": "ড্যাশবোর্ড",
+    "resources": "সম্পদ",
     "contributors": "অবদানকারী",
-    "getStarted": "শুরু করুন"
+    "getStarted": "শুরু করুন",
+    "language": "Language",
+    "theme": "Theme"
   },
   "hero": {
     "title": "ফসল সাথীতে স্বাগতম",
@@ -49,6 +53,10 @@
     "title": "বাজার মূল্য",
     "description": "ফসলের বর্তমান বাজার মূল্য পরীক্ষা করুন"
   },
+  "marketInformation": {
+    "title": "বাজার তথ্য",
+    "description": "বাজার তথ্য এবং মূল্য পান করুন"
+  },
   "contributors": {
     "title": "অবদানকারী",
     "description": "আমাদের দল পরিচিত হন"
@@ -71,6 +79,46 @@
     "location": "অবস্থান",
     "submit": "প্রোফাইল সংরক্ষণ করুন",
     "required": "অনুগ্রহ করে সমস্ত বিবরণ পূরণ করুন।"
+  },
+  "menu": {
+    "more": "আরও",
+    "voiceAssistant": "ভয়েস অ্যাসিস্ট্যান্ট",
+    "mythChecker": "ভুল পরীক্ষক",
+    "cropComparison": "ফসল তুলনা",
+    "liteModeOn": "লাইট মোড চালু",
+    "liteModeOff": "লাইট মোড বন্ধ",
+    "dashboard": "ড্যাশবোর্ড",
+    "feedbackAdmin": "ফিডব্যাক অ্যাডমিন",
+    "profileSettings": "প্রোফাইল সেটিংস",
+    "community": "কমিউনিটি",
+    "leaderboard": "লিডারবোর্ড",
+    "referrals": "রেফারাল",
+    "riskIndex": "রিস্ক ইনডেক্স",
+    "farmFinance": "ফার্ম ফাইন্যান্স",
+    "glossary": "গ্লোসারি",
+    "featureDrift": "ফিচার ড্রিফট মনিটর",
+    "contact": "যোগাযোগ",
+    "liteMode": "Lite Mode"
+  },
+  "scorecard": {
+    "primaryCrop": "প্রধান ফসল",
+    "language": "ভাষা",
+    "location": "অবস্থান",
+    "na": "প্রযোজ্য নয়",
+    "fetching": "লোড হচ্ছে...",
+    "signOut": "সাইন আউট"
+  },
+  "alerts": {
+    "offline": "আপনি বর্তমানে অফলাইনে আছেন। স্থানীয় ডেটা ব্যবহার করে অফলাইন মোডে চালাচ্ছেন।",
+    "backendUnavailable": "ব্যাকএন্ড বর্তমানে অনুপলব্ধ। কিছু বৈশিষ্ট্য কাজ করবে না।",
+    "verifyEmail": "আপনার ইমেল যাচাই করুন",
+    "verifyEmailText": "আমরা আপনাকে একটি লিঙ্ক পাঠিয়েছি",
+    "verifyEmailButton": "আমি আমার ইমেল যাচাই করেছি"
+  },
+  "theme": {
+    "light": "লাইট",
+    "dark": "ডার্ক",
+    "night": "নাইট লাইট"
   },
   "common": {
     "loading": "লোড হচ্ছে...",

@@ -1,17 +1,133 @@
 {
-  "nav": {"home": "গৃহ","advisor": "পৰামৰ্শদাতা","howItWorks": "ইয়াৰ কেনেকুৱা কাজ কৰে","cropGuide": "শস্য পথ প্ৰদর্শক","dashboard": "ড্যাশবোর্ড","contributors": "অবদানকাৰী","getStarted": "আৰম্ভ কৰক"},
-  "hero": {"title": "ফসল সাথীলৈ স্বাগতম","subtitle": "আপোনাৰ AI-চালিত কৃষি সাথী","cta": "আৰম্ভ কৰক"},
-  "home": {"welcome": "ফসল সাথীলৈ স্বাগতম","farmingAssistant": "আপোনাৰ AI-চালিত কৃষি সহায়ক"},
-  "advisor": {"title": "পৰামৰ্শদাতা","description": "শস্য ব্যৱস্থাপনা, বতৰ আৰু কৃষি পদ্ধতি সম্পর্কে বিশেষজ্ঞ পৰামৰ্শ পান"},
-  "dashboard": {"title": "ড্যাশবোর্ড","description": "আপোনাৰ খেত পৰ্যবেক্ষণ কৰক আৰু গুৰুত্বপূৰ্ণ মেট্রিক্স ট্ৰেক কৰক"},
-  "cropGuide": {"title": "শস্য পথ প্ৰদর্শক","description": "বিভিন্ন শস্য আৰু সেইবোৰৰ প্রয়োজনীয়তা সম্পর্কে জানক"},
-  "profitCalculator": {"title": "লাভ কেলকুলেটৰ","description": "আপোনাৰ কৃষি লাভ গণনা কৰক"},
-  "farmingMap": {"title": "কৃষি মানচিত্ৰ","description": "ইন্টাৰেক্টিভ মানচিত্ৰত আপোনাৰ খেত দেখক"},
-  "schemes": {"title": "চৰকাৰী আঁচনি","description": "কৃষকদের জন্য সরকারী আঁচনি অন্বেষণ কৰক"},
-  "resources": {"title": "সম্পদ","description": "সহায়ক কৃষি সম্পদ অ্যাক্সেস কৰক"},
-  "marketPrices": {"title": "বজাৰ মূল্য","description": "শস্যৰ বর্তমান বজাৰ মূল্য পৰীক্ষা কৰক"},
-  "contributors": {"title": "অবদানকাৰী","description": "আমাদের দল দেখা"},
-  "login": {"title": "প্ৰৱেশ কৰক","email": "ইমেইল","password": "পাছৰ্ড","loginButton": "প্ৰৱেশ কৰক","signUp": "সাইন আপ","noAccount": "একাউন্ট নাই?","haveAccount": "ইতিমধ্যে একাউন্ট আছে?"},
-  "profileSetup": {"title": "আপোনাৰ প্ৰোফাইল সম্পূৰ্ণ কৰক","subtitle": "আপোনাৰ ফসল সাথী অভিজ্ঞতা ব্যক্তিগতকৃত কৰাত সহায়তা কৰক","name": "কৃষকৰ নাম","language": "পছন্দৰ ভাষা","cropType": "শস্যৰ প্ৰকাৰ","location": "অৱস্থান","submit": "প্ৰোফাইল সংৰক্ষণ কৰক","required": "দয়া কৰি সকলো বিবৰণ পূৰ্ণ কৰক।"},
-  "common": {"loading": "লোড হৈ আছে...","error": "ত্ৰুটি","success": "সফল","cancel": "বাতিল কৰক","save": "সংৰক্ষণ কৰক","delete": "মুছি দিক","edit": "সম্পাদনা কৰক","close": "বন্ধ কৰক"}
+  "nav": {
+    "home": "গৃহ",
+    "about": "আমাৰ বিষয়ে",
+    "advisor": "পৰামৰ୍ଶদাতা",
+    "howItWorks": "ইয়াৰ কেনেকুৱা কাজ কৰে",
+    "cropGuide": "শস্য পথ প্ৰদর্শক",
+    "dashboard": "ড্যাশবোর্ড",
+    "resources": "সম্পদ",
+    "contributors": "অবদানকাৰী",
+    "getStarted": "আৰম্ভ কৰক",
+    "language": "Language",
+    "theme": "Theme"
+  },
+  "hero": {
+    "title": "ফসল সাথীলৈ স্বাগতম",
+    "subtitle": "আপোনাৰ AI-চালিত কৃষি সাথী",
+    "cta": "আৰম্ভ কৰক"
+  },
+  "home": {
+    "welcome": "ফসল সাথীলৈ স্বাগতম",
+    "farmingAssistant": "আপোনাৰ AI-চালিত কৃষি সহায়ক"
+  },
+  "advisor": {
+    "title": "পৰামৰ୍ଶদাতা",
+    "description": "শস্য ব্যৱস্থাপনা, বতৰ আৰু কৃষি পদ্ধতি সম্পর্কে বিশেষজ্ঞ পৰামৰ্শ পান"
+  },
+  "dashboard": {
+    "title": "ড্যাশবোর্ড",
+    "description": "আপোনাৰ খেত পৰ্যবেক্ষণ কৰক আৰু গুরুত্বপূৰ্ণ মেট্রিক্স ট্ৰেক কৰক"
+  },
+  "cropGuide": {
+    "title": "শস্য পথ প্ৰদর্শক",
+    "description": "বিভিন্ন শস্য আৰু সেইবোৰৰ প্রয়োজনীয়তা সম্পর্কে জানক"
+  },
+  "profitCalculator": {
+    "title": "লাভ কেলকুলেটৰ",
+    "description": "আপোনাৰ কৃষি লাভ গণনা কৰক"
+  },
+  "farmingMap": {
+    "title": "কৃষি মানচিত্ৰ",
+    "description": "ইন্টাৰেক্টিভ মানচিত্ৰত আপোনাৰ খেত দেখক"
+  },
+  "schemes": {
+    "title": "চৰকাৰী আঁচনি",
+    "description": "কৃষকদের জন্য সরকারী আঁচনি অন্বেষণ কৰক"
+  },
+  "resources": {
+    "title": "সম্পদ",
+    "description": "সহায়ক কৃষি সম্পদ অ্যাক্সেস কৰক"
+  },
+  "marketPrices": {
+    "title": "বজাৰ মূল্য",
+    "description": "শস্যৰ বৰ্তমান বজাৰ মূল্য পৰীক্ষা কৰক"
+  },
+  "marketInformation": {
+    "title": "বজাৰ তথ্য",
+    "description": "বজাৰ তথ্য আৰু মূল্য প্ৰাপ্ত কৰক"
+  },
+  "contributors": {
+    "title": "অবদানকাৰী",
+    "description": "আমাদের দল দেখক"
+  },
+  "login": {
+    "title": "প্ৰৱেশ কৰক",
+    "email": "ইমেইল",
+    "password": "পাছৰ্ড",
+    "loginButton": "প্ৰৱেশ কৰক",
+    "signUp": "সাইন আপ",
+    "noAccount": "একাউন্ট নাই?",
+    "haveAccount": "ইতিমধ্যে একাউন্ট আছে?"
+  },
+  "profileSetup": {
+    "title": "আপোনাৰ প্ৰোফাইল সম্পূৰ্ণ কৰক",
+    "subtitle": "আপোনাৰ ফসল সাথী অভিজ্ঞতা ব্যক্তিগতকৃত কৰাত সহায়তা কৰক",
+    "name": "কৃষকৰ নাম",
+    "language": "পছন্দৰ ভাষা",
+    "cropType": "শস্যৰ প্ৰকাৰ",
+    "location": "অৱস্থান",
+    "submit": "প্ৰোফাইল সংৰক্ষণ কৰক",
+    "required": "দয়া কৰি সকলো বিবৰণ পূৰ্ণ কৰক।"
+  },
+  "menu": {
+    "more": "অধিক",
+    "voiceAssistant": "কণ্ঠ সহায়ক",
+    "mythChecker": "ভুল পৰীক্ষক",
+    "cropComparison": "শস্য তুলনা",
+    "liteModeOn": "লাইট মোড চালু",
+    "liteModeOff": "লাইট মোড বন্ধ",
+    "dashboard": "ড্যাশবোর্ড",
+    "feedbackAdmin": "ফিডবেক প্ৰশাসক",
+    "profileSettings": "প্ৰোফাইল সংযোজন",
+    "community": "সম্প্ৰদায়",
+    "leaderboard": "লীডাৰবৰ্ড",
+    "referrals": "ৰেফাৰেল",
+    "riskIndex": "জোখিম সূচক",
+    "farmFinance": "খেত অৰ্থনৈতিক",
+    "glossary": "শব্দাবলী",
+    "featureDrift": "ফিচার ড্রিফট মনিটৰ",
+    "contact": "যোগাযোগ",
+    "liteMode": "Lite Mode"
+  },
+  "scorecard": {
+    "primaryCrop": "প্ৰধান শস্য",
+    "language": "ভাষা",
+    "location": "অৱস্থান",
+    "na": "লাগূ নহে",
+    "fetching": "লোড হৈ আছে...",
+    "signOut": "ছাইন আউট"
+  },
+  "alerts": {
+    "offline": "আপনি বৰ্তমান অফলাইন আছেন। স্থানীয় ডেটা ব্যৱহাৰ কৰি অফলাইন মোডত চালু কৰিছেন।",
+    "backendUnavailable": "ব্যাকএন্ড বৰ্তমান উপলব্ধ নহয়। কেইটiamo বৈশিষ্ট্য কাম নকৰিব।",
+    "verifyEmail": "আপোনাৰ ইমেইল পৰিশোধ কৰক",
+    "verifyEmailText": "আমে আপোনাক এটা লিঙ্ক পঠাইছো",
+    "verifyEmailButton": "মই মোৰ ইমেইল পৰিশোধ কৰিছো"
+  },
+  "theme": {
+    "light": "লাইট",
+    "dark": "ডাৰ্ক",
+    "night": "নাইট লাইট"
+  },
+  "common": {
+    "loading": "লোড হৈ আছে...",
+    "error": "ত্ৰুটি",
+    "success": "সফল",
+    "cancel": "বাতিল কৰক",
+    "save": "সংৰক্ষণ কৰক",
+    "delete": "মুছি দিয়ক",
+    "edit": "সম্পাদনা কৰক",
+    "close": "বন্ধ কৰক"
+  }
 }

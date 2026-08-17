@@ -259,6 +259,7 @@ SAFE_VOICE_INTENTS = {
     "irrigation_advice",
     "yield_prediction",
     "pest_management",
+    "market_information",
     "general_query",
 }
 
@@ -286,32 +287,72 @@ INTENT_PATTERNS = {
         r"(?:fasal|crop|paudha?)\s+(?:peedle|sick|halki|kamzor)",
         r"what.*problem.*my.*crop",
         r"why.*crop.*dying",
+        r"मेरी\s+फसल\s+को\s+क्या\s+समस्या\s+है\??",
+        r"फसल\s+में\s+समસ্যা",
+        r"पौधे?\s+को\s+क्या\s+બીમારી",
+        r"મેરેઁ\s+પૌધેઁ\s+બીમાર\s+હૈ",
+        r"મારી\s+પાક\s+માં\s+શું\s+સમસ્યા\s+ચે",
+        r"என்\s+பயிரில்\s+என்ன\s+பிரச்சனை",
     ],
     "weather_alert": [
         r"(?:mausam|weather)\s+(?:kaisa|kya|how)",
         r"(?:baarish|rain|tufaan|storm)\s+(?:aa|aayega|aayega)",
         r"(?:temperature|garmi|garmi)\s+(?:kitni|how much)",
         r"weather.*today|tomorrow|this week",
+        r"मौसम\s+कैसा\s+रहेगा?",
+        r"बारिश\s+आएगी?",
+        r"तूफान\s+आएगा?",
+        r"તાપમાન\s+કિતનું\s+હૈ",
+        r"મોસમ\s+કેવું\s+રહેશે",
+        r"வானం\s+எப்படி\s+இருக்கும்",
     ],
     "fertilizer_guide": [
         r"(?:khad|fertilizer|nutrients?)\s+(?:kaunsi|kaun|which)",
         r"(?:fasal|crop)\s+(?:ke|ko)\s+(?:liye|for)\s+(?:khad|fertilizer)",
         r"(?:nutrient|nitrogen|phosphorus|potassium)\s+guidance",
         r"what.*fertilizer.*my.*crop",
+        r"ગેહૂં\s+કો\s+કૌન\s+સી\s+ખાદ\s+દેો",
+        r"ફસલ\s+કે\s+લીએ\s+ખાદ",
+        r"કૌન\s+સી\s+ખાદ\s+ચાહીએ",
+        r"પાક\s+ને\s+શું\s+ખાદ\s+ચાહીએ",
+        r"எனது\s+பயிருக்கு\s+எது\s+உரம்",
     ],
     "irrigation_advice": [
         r"(?:pani|water)\s+(?:kitna|how much|when)",
         r"(?:sinchai|irrigation)\s+(?:schedule|table)",
         r"(?:how|when)\s+to\s+irrigate",
+        r"सिंचाई\s+कब\s+करें",
+        r"पानी\s+કબ\s+દેઓ?",
+        r"સિન્ચાઈ\s+કબ\s+કરવી",
+        r"நீர்\s+எப்போது\s+விடைய{VAR}",
     ],
     "yield_prediction": [
         r"(?:paidavaari|yield|production)\s+(?:kitni|how much)",
         r"(?:expected|munday|aashayit)\s+(?:paidavaari|yield)",
         r"(?:crop)\s+(?:utpadan|production)\s+forecast",
+        r"પાદવાર\s+કિતની\s+હોગી",
+        r"ઉત્પાદન\s+કેટલું\s+હશે",
+        r"உற்பத்தி\s+எத்தனை\s+ஆகும்",
     ],
     "pest_management": [
         r"(?:keeda|pest|insect|bug)\s+(?:se|from)\s+(?:kaise|how)",
         r"(?:pest|कीड़े)\s+control\s+(?:method|tarika)",
+        r"કીડોં\s+સે\s+કૈસે\s+બચો?",
+        r"કીટ\s+નિયંત્રણ\s+કેવી\s+રીતે",
+        r"பூச்சி\s+எப்படி\s+நிகழ்தகவு",
+    ],
+    "market_information": [
+        r"(?:bajar|market|mandi)\s+(?:daam|price|ray|bhav)",
+        r"(?:mi|market\s+information)\s+(?:kaise|how|kya|chahiye|open)",
+        r"(?:fasal|crop)\s+(?:ke|ka|ki)\s+(?:daam|price|ray|bhav)",
+        r"what.*market.*price",
+        r"how.*market.*information",
+        r"मंडी\s+(?:में|की|का)\s+(?:क्या|कीमत|दाम|भाव)",
+        r"बाजार\s+(?:में|की|का)\s+(?:क्या|कीमत|दाम|भाव)",
+        r"બજાર\s+(?:નું|ની|માં)\s+(?:કેમ|કયું|ભાવ|દર)",
+        r"મંડી\s+(?:નું|ની|માં)\s+(?:કયું|ભાવ|દર)",
+        r"மார்க்கெட்\s+(?:விலை|ப்ரைஸ்)",
+        r"ధర\s+ఎంత\s+ఉంది",
     ],
 }
 
@@ -356,6 +397,7 @@ RESPONSE_TEMPLATES = {
         "weather_alert": "मौसम अपडेट: {condition}। सावधानी: {warning}",
         "fertilizer": "आपकी {crop} को {fertilizer} की आवश्यकता है। मात्रा: {dose}",
         "irrigation": "सिंचाई का समय: {schedule}। मात्रा: {quantity}",
+        "market_information": "बाजार अपडेट: आपकी {crop} की कीमत अच्छी है। मंडी में व्यापक मांग है।",
         "greeting": "नमस्ते! मैं आपके खेत के लिए यहाँ हूँ।",
         "error": "क्षमा करें, मुझे समझ नहीं आया। कृपया दोहराएं।",
     },
@@ -364,6 +406,7 @@ RESPONSE_TEMPLATES = {
         "weather_alert": "मौसम की खबर: {condition}। सावधान: {warning}",
         "fertilizer": "आपरे {crop} को {fertilizer} चाहिए। मात्रा: {dose}",
         "irrigation": "पानी का वक्त: {schedule}। मात्रा: {quantity}",
+        "market_information": "बाजार अपडेट: आपरे {crop} का दाम अच्छा बा। मंडी में मांग बा।",
         "greeting": "राम राम! मैं आपरे खेत के लिए हूँ।",
         "error": "माफ करिहे, मुझे समझ न आइल। फिर से कहिहे।",
     },
@@ -372,14 +415,52 @@ RESPONSE_TEMPLATES = {
         "weather_alert": "हवामान अपडेट: {condition}। सावधानता: {warning}",
         "fertilizer": "तुमच्या {crop} ला {fertilizer} हवे. प्रमाण: {dose}",
         "irrigation": "सिंचन वेळ: {schedule}. प्रमाण: {quantity}",
+        "market_information": "बाजार अपडेट: तुमच्या {crop} चे भाव चांगले आहेत. मंडीत मागणी जास्त आहे.",
         "greeting": "नमस्कार! मी तुमच्या शेतीसाठी येथे आहे.",
         "error": "क्षमस्व, मला समजले नाही. कृपया पुन्हा सांगा.",
+    },
+    "gu": {
+        "crop_health": "તમારી {crop}માં {disease}ના લક્ષણો છે. સલાહ: {advice}",
+        "weather_alert": "હવામાન અપડેટ: {condition}. ચેતવણી: {warning}",
+        "fertilizer": "તમારી {crop}ને {fertilizer} જરૂર છે. માત્રા: {dose}",
+        "irrigation": "સિન્ચાઈ સમય: {schedule}. માત્રા: {quantity}",
+        "market_information": "બજાર અપડેટ: તમારી {crop}નું ભાવ ચોંકસું છે. મંડીમાં માંગ વધારે છે.",
+        "greeting": "નમસ્તે! હું તમારા ખેત માટે ચોક્કસ છે.",
+        "error": "માફ કરશો, હું સમજી શક્યો નહિં. કૃપયા ફરીથી કહો.",
+    },
+    "kn": {
+        "crop_health": "ನಿಮ್ಮ {crop}ನಲ್ಲಿ {disease} ಗುರುತು ಕಂಡಿದೆ. ಸಲಹೆ: {advice}",
+        "weather_alert": "ಹವಾಮನ ಅಪ્ડೇಟ್: {condition}. ಎಚ್ಚರಿಕೆ: {warning}",
+        "fertilizer": "ನಿಮ್ಮ {crop}ಗೆ {fertilizer} ಅಗತ್ಯ. ಪ್ರಮಾಣ: {dose}",
+        "irrigation": "ನೀರಾವಿನ ಸಮಯ: {schedule}. ಪ್ರಮಾಣ: {quantity}",
+        "market_information": "ಮಾರುಕಟ್ಟೆ ಅಪ್ಡೇಟ್: ನಿಮ್ಮ {crop} ಬೆಲೆ ಉತ್ತಮವಾಗಿದೆ. ಮಂಡಿಯಲ್ಲಿ ಬೇಡಿಕೆ ಹೆಚ್ಚಿದೆ.",
+        "greeting": "ನಮಸ್ಕಾರ! ನಾನು ನಿಮ್ಮ ಹೆಬ್ಬರಿಗಾಗಿ ಇಲ್ಲಿ ఉన్నాను.",
+        "error": "ಕ್ಷಮಿಸಿ, ನಾನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಹೇಳಿ.",
+    },
+    "te": {
+        "crop_health": "మీ {crop}లో {disease} అతీకలు ఉన్నాయి. సలహా: {advice}",
+        "weather_alert": "వాతావరణ అప్డేట్: {condition}. ఎச்சరిక: {warning}",
+        "fertilizer": "మీ {crop}కి {fertilizer} అవసరం. మొత్తం: {dose}",
+        "irrigation": "నీటిపారుదల సమయం: {schedule}. మొత్తం: {quantity}",
+        "market_information": "మార్కెట్ అప్డేట్: మీ {crop} ధర బాగుంది. మండిలో డిమాండ్ ఎక్కువగా ఉంది.",
+        "greeting": "హలో! నేను మీ వ్యవసాయం కోసం ఇక్కడ ఉన్నాను.",
+        "error": "క్షమించండి, నాకు అర్ధమായలేదు. దయచేసి మళ్లీ చెప్పండి.",
+    },
+    "ta": {
+        "crop_health": "உங்கள் {crop}ல {disease} அறிகுறிகள் உள்ளன. ஆலோசனை: {advice}",
+        "weather_alert": "வானிலை புதுப்பிப்பு: {condition}. எச்சரிக்கை: {warning}",
+        "fertilizer": "உங்கள் {crop}க்கு {fertilizer} தேவை. அளவு: {dose}",
+        "irrigation": "நீர்ப்பாசன அட்டவணை: {schedule}. அளவு: {quantity}",
+        "market_information": "சந்தை புதுப்பிப்பு: உங்கள் {crop} விலை நல்லது. மंண்டியில் உறுதியான தேவை உள்ளது.",
+        "greeting": "வணக்கம்! நான் உங்கள் பண்ணையுக்காக இங்கே இருக்கிறேன்.",
+        "error": "மன்னிக்கவும், எனக்குப் புரியவில்லை. தயவுசெய்து மீண்டும் சொல்லுங்கள்.",
     },
     "en": {
         "crop_health": "Your {crop} shows signs of {disease}. Advice: {advice}",
         "weather_alert": "Weather Update: {condition}. Warning: {warning}",
         "fertilizer": "Your {crop} needs {fertilizer}. Dosage: {dose}",
         "irrigation": "Irrigation Schedule: {schedule}. Amount: {quantity}",
+        "market_information": "Market Update: Your {crop} prices are looking good. Strong demand at the mandi.",
         "greeting": "Hello! I'm here to help with your farm.",
         "error": "Sorry, I didn't understand. Please repeat.",
     },
@@ -417,9 +498,11 @@ class VoiceSession:
     user_id: str
     language_code: str
     start_time: str
+    last_activity: str
     last_query: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     offline_mode: bool = False
+    conversation_history: List[Dict[str, Any]] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -494,6 +577,7 @@ class VoiceAssistant:
         self.language_model = OfflineLanguageModel()
         self.sessions: Dict[str, VoiceSession] = {}
         self._session_lock = threading.Lock()
+        self.cache_manager = OfflineCacheManager()
 
     def _evict_stale_sessions(self):
         """Remove expired and excess sessions."""
@@ -518,7 +602,7 @@ class VoiceAssistant:
             for sid in sorted_sids[:len(self.sessions) - MAX_SESSIONS]:
                 del self.sessions[sid]
         self.offline_cache = self._init_offline_cache()
-        logger.info(f"Voice Assistant initialized - Offline mode: {offline_mode}")
+        logger.info(f"Voice Assistant initialized - Offline mode: {self.offline_mode}")
     
     def _init_offline_cache(self) -> Dict[str, Any]:
         """Initialize offline knowledge cache"""
@@ -741,22 +825,25 @@ class VoiceAssistant:
             )
         
         elif intent == "fertilizer_guide":
-            crop = entities.get("crop", "गेहूँ")
+            crop = entities.get("crop", "गेहूँ" if language_code == "hi" else "wheat")
             fert_rec = self.offline_cache["fertilizer_recommendations"].get(
                 crop.lower(), {"nitrogen": "60 kg/acre", "phosphorus": "40 kg/acre"}
             )
+            fert_name = "DAP और यूरिया" if language_code == "hi" else "DAP and Urea"
             return templates["fertilizer"].format(
                 crop=crop,
-                fertilizer="DAP और यूरिया",
+                fertilizer=fert_name,
                 dose=fert_rec.get("nitrogen", "60 kg/acre"),
             )
         
         elif intent == "irrigation_advice":
-            crop = entities.get("crop", "धान")
+            crop = entities.get("crop", "धान" if language_code == "hi" else "rice")
             irr_sched = self.offline_cache["irrigation_schedules"].get(crop.lower(), {})
+            freq = irr_sched.get("frequency", "हर 10 दिन में" if language_code == "hi" else "Every 10 days")
+            amt = irr_sched.get("amount", "50 मिमी" if language_code == "hi" else "50 mm")
             return templates["irrigation"].format(
-                schedule=irr_sched.get("frequency", "हर 10 दिन में"),
-                quantity=irr_sched.get("amount", "50 मिमी"),
+                schedule=freq,
+                quantity=amt,
             )
         elif intent == "yield_prediction":
             return (
@@ -771,6 +858,15 @@ class VoiceAssistant:
                 if language_code == "hi"
                 else "Use recommended pesticide spray in controlled quantity."
             )
+        
+        elif intent == "market_information":
+            crop = entities.get("crop", "आपकी फसल" if language_code == "hi" else "your crop")
+            crop_display = (
+                crop if crop != "your crop" else (
+                    "आपकी फसल" if language_code == "hi" else crop
+                )
+            )
+            return templates["market_information"].format(crop=crop_display)
         
         return templates.get("greeting", "नमस्ते! मैं आपके लिए यहाँ हूँ।")
     
@@ -992,8 +1088,19 @@ class OfflineCacheManager:
         return {}
     
     def save_session(self, session: VoiceSession):
+        session_dict = {
+            "session_id": session.session_id,
+            "user_id": session.user_id,
+            "language_code": session.language_code,
+            "start_time": session.start_time,
+            "last_activity": session.last_activity,
+            "last_query": session.last_query,
+            "context": session.context,
+            "offline_mode": session.offline_mode,
+            "conversation_history": session.conversation_history,
+        }
         self.save_cache(
-            asdict(session),
+            session_dict,
             key=f"session_{session.session_id}"
         )
 
