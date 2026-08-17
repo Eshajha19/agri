@@ -130,3 +130,20 @@
   background: #475569;
   color: #f1f5f9;
 }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: yield-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+@keyframes yield-spin {
+  to { transform: rotate(360deg); }
+}

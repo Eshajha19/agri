@@ -1,9 +1,11 @@
 """ML Governance Router - Drift, shadow eval, versioning"""
+import re
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 
+from backend.core.logging_config import setup_logging
 from rbac_audit import audit_rbac_event
 
 router = APIRouter()
@@ -381,12 +383,4 @@ async def get_governance_status(request: Request):
             "active_evals": len(shadow_evaluator.active_evaluations if hasattr(shadow_evaluator, 'active_evaluations') else []),
             "total_versions": len(version_manager.versions if hasattr(version_manager, 'versions') else [])
         }
-
-    except Exception:
-        logger.exception(
-            "governance.rollback_version.failed "
-            "user_id=%s version_id=%s",
-            user_id,
-            version_id,
-        )
-        raise
+    }

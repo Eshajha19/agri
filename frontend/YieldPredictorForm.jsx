@@ -10,7 +10,7 @@
  *                          standalone page where there is no modal to close.
  */
 import React from "react";
-import { BarChart3, X } from "lucide-react";
+import { BarChart3, Loader2, X } from "lucide-react";
 import LastUpdated from "./LastUpdated";
 import { useYieldPrediction } from "./hooks/useYieldPrediction";
 
@@ -88,7 +88,7 @@ export default function YieldPredictorForm({ onClose }) {
               step="0.1"
               value={yieldForm.CropCoveredArea}
               onChange={(e) =>
-                updateYieldFormField("CropCoveredArea", parseFloat(e.target.value))
+                updateYieldFormField("CropCoveredArea", e.target.value === "" ? 0 : parseFloat(e.target.value))
               }
             />
           </div>
@@ -101,7 +101,7 @@ export default function YieldPredictorForm({ onClose }) {
               min="0"
               value={yieldForm.CHeight}
               onChange={(e) =>
-                updateYieldFormField("CHeight", parseInt(e.target.value))
+                updateYieldFormField("CHeight", e.target.value === "" ? 0 : parseInt(e.target.value))
               }
             />
           </div>
@@ -197,7 +197,7 @@ export default function YieldPredictorForm({ onClose }) {
               min="0"
               value={yieldForm.IrriCount}
               onChange={(e) =>
-                updateYieldFormField("IrriCount", parseInt(e.target.value))
+                updateYieldFormField("IrriCount", e.target.value === "" ? 0 : parseInt(e.target.value))
               }
             />
           </div>
@@ -211,14 +211,21 @@ export default function YieldPredictorForm({ onClose }) {
               max="100"
               value={yieldForm.WaterCov}
               onChange={(e) =>
-                updateYieldFormField("WaterCov", parseInt(e.target.value))
+                updateYieldFormField("WaterCov", e.target.value === "" ? 0 : parseInt(e.target.value))
               }
             />
           </div>
 
           <div className="form-group full-width form-actions">
             <button type="submit" className="action-btn" disabled={yieldLoading}>
-              {yieldLoading ? "Predicting…" : "Predict Yield"}
+              {yieldLoading ? (
+                <>
+                  <Loader2 className="spinner" size={18} aria-hidden="true" />
+                  Predicting…
+                </>
+              ) : (
+                "Predict Yield"
+              )}
             </button>
             {onClose && (
               <button

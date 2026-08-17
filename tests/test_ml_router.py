@@ -27,7 +27,8 @@ def _make_app(verify_role=None, model=None):
     app = FastAPI()
     app.include_router(router, prefix="/api/ml")
     mock_model = model or MagicMock()
-    mock_model.predict.return_value = 42.0
+    if model is None:
+        mock_model.predict.return_value = 42.0
     init_router(mock_model, None, None, verify_role)
     return app
 

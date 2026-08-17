@@ -1,5 +1,6 @@
 """ML Prediction Router - Yield prediction endpoints"""
 import os
+import re
 import threading
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
@@ -115,10 +116,11 @@ async def predict_yield(data: PredictRequest, request: Request):
         sanitised_location = re.sub(r"[^\w\s,.-]", "", raw_location)[:100].strip() or "Unknown"
         context = {"location": sanitised_location, "crop": data.Crop}
         predicted_yield = model_router.predict(input_data, context)
-        return {"predicted_ExpYield": float(predicted_yield)}
+        explanation = _build_prediction_explanation(predicted_yield)
+        return {"predicted_ExpYield": float(predicted_yield), "explanation": explanation}
     except ValueError as e:
         logger.error("Prediction input value error: %s", e, exc_info=True)
-        raise HTTPException(status_code=400, detail="Invalid input values for prediction.")
+        raise HTTPException(status_code=400, detail=f"Invalid input values for prediction: {e}")
     except Exception as e:
         logger.error("Prediction processing error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while processing the prediction request.")
@@ -163,9 +165,9 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
         with _trend_lock:
             if model_trend is None:
                 try:
-                    import joblib
+                    from ml.security import verify_and_load_joblib
                     if os.path.exists(TREND_MODEL_PATH):
-                        model_trend = joblib.load(TREND_MODEL_PATH)
+                        model_trend = verify_and_load_joblib(TREND_MODEL_PATH)
                         logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
                     else:
                         raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
@@ -177,21 +179,6 @@ async def predict_yield_trend(payload: YieldInput, request: Request):
                                "the lag-feature model (used by /predict-yield-lag) is statistically invalid "
                                "for multi-step trend forecasting."
                     )
-        try:
-            import joblib
-            if os.path.exists(TREND_MODEL_PATH):
-                model_trend = verify_and_load_joblib(TREND_MODEL_PATH)
-                logger.info("Trend forecast model loaded from %s", TREND_MODEL_PATH)
-            else:
-                raise FileNotFoundError(f"Trend model not found at {TREND_MODEL_PATH}")
-        except Exception as load_err:
-            logger.error("Trend forecast model unavailable: %s. Endpoint cannot serve trend predictions.", load_err)
-            raise HTTPException(
-                status_code=503,
-                detail="Trend forecast model is not loaded. A dedicated trend model is required — "
-                       "the lag-feature model (used by /predict-yield-lag) is statistically invalid "
-                       "for multi-step trend forecasting."
-            )
 
     try:
         trend = []
