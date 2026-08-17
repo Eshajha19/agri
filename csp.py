@@ -51,7 +51,7 @@ def _directives(env: str) -> dict:
         "'self' "
         + " ".join(FIREBASE_AUTH_FRAME_DOMAINS + GOOGLE_TRANSLATE_FRAME_DOMAINS)
     )
-    connect_src = "'self' " + " ".join(FIREBASE_AUTH_CONNECT_DOMAINS)
+    connect_src = "'self' " + " ".join(FIREBASE_AUTH_CONNECT_DOMAINS) + " https://github.githubassets.com"
     backend_url = os.getenv("BACKEND_URL", "").strip()
     if backend_url:
         connect_src += f" {backend_url}"

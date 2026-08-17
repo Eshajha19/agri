@@ -378,21 +378,16 @@ async def predict_yield(data: PredictRequest, request: Request):
         input_data = data.model_dump() if hasattr(data, "model_dump") else data.dict()
         input_data = _coerce_prediction_inputs(input_data)
 
-        # Import ML router lazily. If ML is missing/unloadable, return 503.
         try:
             from ml.router import ModelRouter  # type: ignore
         except Exception as e:
             logger.exception("ML router import failed")
             raise HTTPException(status_code=503, detail=f"ML pipeline unavailable: {e}")
 
-        # Best-effort model registration.
-        # The ML registry must contain at least the default model before
-        # ModelRouter.predict() is called.
         try:
             from ml.registry import ModelRegistry  # type: ignore
             if not getattr(ModelRegistry, "_models", None):
                 from ml.adapters.xgboost_adapter import XGBoostAdapter  # type: ignore
-
                 model_path = "yield_model.joblib"
                 if os.path.exists(model_path):
                     adapter = XGBoostAdapter()
@@ -408,11 +403,13 @@ async def predict_yield(data: PredictRequest, request: Request):
             logger.exception("ML prediction failed")
             raise HTTPException(status_code=503, detail=f"ML prediction unavailable: {e}")
 
-        return result
-
+        return {"predicted_ExpYield": float(result)}
 
     except HTTPException:
         raise
+    except Exception as e:
+        logger.exception("Prediction processing error")
+        raise HTTPException(status_code=500, detail=f"An error occurred while processing the prediction request: {e}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
