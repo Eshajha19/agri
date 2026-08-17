@@ -307,28 +307,33 @@ async def verify_role(request: Request, required_roles: list = None):
     return {"uid": uid, "role": user_role}
 
 # --- Secure CORS Configuration ---
+import re
+
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 trusted_origins = [
-    "http://localhost:5173",     # Local development
-    "http://127.0.0.1:5173",     # Local development alternative
-    "https://yourfrontend.com",  # Production domain placeholder
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://fasal-saathi.vercel.app",
+    "https://fasal-saathi.xyz",
 ]
 
-# Add any custom frontend URLs from environment
 if frontend_url and frontend_url not in trusted_origins:
     trusted_origins.append(frontend_url)
 
-# Support comma-separated list of additional origins
 extra_origins = os.getenv("ADDITIONAL_ALLOWED_ORIGINS")
 if extra_origins:
-    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",")])
+    trusted_origins.extend([origin.strip() for origin in extra_origins.split(",") if origin.strip()])
+
+_vercel_pattern = r"^https://[a-z0-9-]+\.vercel\.app$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=trusted_origins,
+    allow_origin_regex=_vercel_pattern,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    max_age=3600,
 )
 
 # Add RBAC middleware for access logging
@@ -593,6 +598,14 @@ _farm_finance_ai = None
 @app.get("/")
 def root():
     return {"message": "Fasal Saathi API", "status": "running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "Backend is running"}
+
+@app.get("/health/sync")
+def health_sync():
+    return {"sync": True}
 
 @app.get("/predict")
 def predict_get():
