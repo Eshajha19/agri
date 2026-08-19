@@ -6,6 +6,7 @@
  */
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import YieldPredictorForm from "./YieldPredictorForm";
 import ErrorBoundary from "./ErrorBoundary";
@@ -13,6 +14,7 @@ import "./YieldPredictor.css";
 
 export default function YieldPredictor() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   return (
     <div className="yield-predictor-page">
@@ -20,7 +22,7 @@ export default function YieldPredictor() {
         <button
           className="yield-predictor-back-btn"
           onClick={() => navigate(-1)}
-          aria-label="Go back"
+          aria-label={t("common.close")}
         >
           <X size={20} aria-hidden="true" />
         </button>

@@ -59,7 +59,8 @@
   },
   "contributors": {
     "title": "অবদানকাৰী",
-    "description": "আমাদের দল দেখক"
+    "description": "আমাদের দল দেখক",
+    "joinCommunity": "Join the Fasal Saathi Community"
   },
   "login": {
     "title": "প্ৰৱেশ কৰক",
@@ -129,5 +130,94 @@
     "delete": "মুছি দিয়ক",
     "edit": "সম্পাদনা কৰক",
     "close": "বন্ধ কৰক"
+  },
+  "yieldPredictor": {
+    "title": "Yield Prediction",
+    "error": "Error:",
+    "crop": "Crop",
+    "season": "Season",
+    "coveredArea": "Covered Area (acres)",
+    "cropHeight": "Crop Height (cm)",
+    "nextCrop": "Next Crop",
+    "lastCrop": "Last Crop",
+    "transplantingMethod": "Transplanting Method",
+    "irrigationType": "Irrigation Type",
+    "irrigationSource": "Irrigation Source",
+    "irrigationCount": "Irrigation Count",
+    "waterCoverage": "Water Coverage (%)",
+    "predicting": "Predicting…",
+    "predictYield": "Predict Yield",
+    "cancel": "Cancel",
+    "predictedYield": "Predicted Yield:",
+    "quintalsPerAcre": "quintals/acre",
+    "predictAnother": "Predict Another",
+    "crops": {
+      "paddy": "Paddy",
+      "cotton": "Cotton",
+      "maize": "Maize",
+      "bengalGram": "Bengal Gram",
+      "groundnut": "Groundnut",
+      "chillies": "Chillies",
+      "redGram": "Red Gram",
+      "pea": "Pea",
+      "lentil": "Lentil",
+      "sorghum": "Sorghum",
+      "wheat": "Wheat",
+      "soybean": "Soybean",
+      "mustard": "Mustard",
+      "rice": "Rice",
+      "tomato": "Tomato",
+      "onion": "Onion"
+    },
+    "seasons": {
+      "rabi": "Rabi",
+      "kharif": "Kharif"
+    },
+    "transplantingMethods": {
+      "transplanting": "Transplanting",
+      "drilling": "Drilling",
+      "broadcasting": "Broadcasting",
+      "seedDrilling": "Seed Drilling"
+    },
+    "irrigationTypes": {
+      "flood": "Flood",
+      "sprinkler": "Sprinkler",
+      "drip": "Drip",
+      "surface": "Surface"
+    },
+    "irrigationSources": {
+      "groundwater": "Groundwater",
+      "canal": "Canal",
+      "rainfed": "Rainfed",
+      "well": "Well",
+      "tubewell": "Tubewell"
+    }
+  },
+  "weather": {
+    "title": "Weather Insights",
+    "subtitle": "Real-time weather forecasts and custom alerts for your farm",
+    "alertBar": "Weather Alerts",
+    "quickWidget": "Quick Weather",
+    "forecast": "Forecast",
+    "temperature": "Temperature",
+    "humidity": "Humidity",
+    "rainfall": "Rainfall",
+    "windSpeed": "Wind Speed",
+    "pressure": "Pressure",
+    "uvIndex": "UV Index",
+    "visibility": "Visibility",
+    "sunrise": "Sunrise",
+    "sunset": "Sunset",
+    "feelsLike": "Feels Like",
+    "noData": "Weather data unavailable",
+    "loading": "Loading weather data...",
+    "error": "Failed to load weather data",
+    "retry": "Retry",
+    "alertHeavyRain": "Heavy Rain Alert",
+    "alertDrought": "Drought Warning",
+    "alertHeatwave": "Heatwave Alert",
+    "alertFrost": "Frost Alert",
+    "alertWind": "Strong Wind Warning",
+    "alertHumidity": "High Humidity Alert"
   }
 }

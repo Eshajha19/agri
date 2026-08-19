@@ -106,10 +106,7 @@ export default function Contributors() {
         <div className="hero-inner">
           <div className="hero-left">
             <h1>
-              {t(
-                "Join the Fasal Saathi Community",
-                "Join the Fasal Saathi Community"
-              )}
+              {t("contributors.joinCommunity", "Join the Fasal Saathi Community")}
             </h1>
 
             <p className="hero-animate">
