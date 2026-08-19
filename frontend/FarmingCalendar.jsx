@@ -33,7 +33,7 @@ import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import "./FarmingCalendar.css";
 import Loader from "./Loader";
-import { sendDailyReminderEmail } from "./services/emailService";
+import { sendDailyReminderEmail, buildDailyReminderText, buildMailtoLink } from "./services/emailService";
 
 const ACTIVITY_TYPES = [
   { id: "sowing", label: "Sowing", icon: <Sprout size={16} />, color: "#10b981" },
@@ -599,15 +599,18 @@ const FarmingCalendar = ({ userData }) => {
       return;
     }
 
+    const upcomingReminders = sortActivities(activities)
+      .filter((item) => !item.completed)
+      .slice(0, 8);
+
+    const userName = userData?.displayName || auth?.currentUser?.email?.split("@")[0] || "Farmer";
+    const todayLabel = formatDateLabel(new Date().toISOString());
+
     setSendingEmail(true);
     try {
-      const upcomingReminders = sortActivities(activities)
-        .filter((item) => !item.completed)
-        .slice(0, 8);
-
       await sendDailyReminderEmail({
         toEmail: recipientEmail,
-        userName: userData?.displayName || auth?.currentUser?.email?.split("@")[0] || "Farmer",
+        userName,
         activities,
         upcomingReminders,
       });
@@ -615,7 +618,21 @@ const FarmingCalendar = ({ userData }) => {
       notify("Daily reminder email sent successfully.");
     } catch (error) {
       console.error("Error sending daily reminder email:", error);
-      notify(error.message || "Unable to send the reminder email.");
+
+      const textContent = buildDailyReminderText({
+        userName,
+        activities,
+        upcomingReminders,
+      });
+
+      const mailtoLink = buildMailtoLink({
+        toEmail: recipientEmail,
+        subject: `Your Daily Farm Reminders - ${todayLabel}`,
+        body: textContent,
+      });
+
+      window.open(mailtoLink, "_blank");
+      notify("Email service unavailable. Opening your email app instead.");
     } finally {
       setSendingEmail(false);
     }

@@ -413,8 +413,23 @@ export const sendDailyReminderEmail = async ({
   }
 };
 
+export const buildMailtoLink = ({ toEmail, subject, body }) => {
+  const safeTo = toEmail || "";
+  const safeSubject = subject ? encodeURIComponent(subject) : "";
+  const safeBody = body ? encodeURIComponent(body) : "";
+
+  let link = `mailto:${safeTo}`;
+  const params = [];
+  if (safeSubject) params.push(`subject=${safeSubject}`);
+  if (safeBody) params.push(`body=${safeBody}`);
+  if (params.length) link += `?${params.join("&")}`;
+
+  return link;
+};
+
 export default {
   sendDailyReminderEmail,
   buildDailyReminderHtml,
   buildDailyReminderText,
+  buildMailtoLink,
 };
