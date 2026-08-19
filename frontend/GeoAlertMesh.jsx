@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import * as geofire from "geofire-common";
 import { db, auth, isFirebaseConfigured } from "./lib/firebase";
 import { collection, addDoc, query, orderBy, startAt, endAt, Timestamp, onSnapshot } from "firebase/firestore";
@@ -11,6 +12,7 @@ const SEVERITY_LEVELS = ["High", "Medium"];
 const NOTES_MAX_LENGTH = 100;
 
 export default function GeoAlertMesh({ onClose }) {
+  const { t } = useTranslation();
   const [alerts, setAlerts] = useState([]);
   const [location, setLocation] = useState(null);
   const [error, setError] = useState(null);

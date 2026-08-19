@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import "./CropInsuranceClaim.css";
 import apiClient from "./services/api";
 import ClaimRejectionDetails from "./components/ClaimRejectionDetails";
@@ -31,6 +32,7 @@ const SEVERITY_ICONS = { Low: "✅", Medium: "⚠️", High: "🔴" };
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function CropInsuranceClaim() {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     farmer_name: "",

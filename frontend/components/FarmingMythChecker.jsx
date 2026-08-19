@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./FarmingMythChecker.css";
 
 const myths = [
@@ -139,6 +140,7 @@ function verdictToLabel(verdict) {
 }
 
 export default function FarmingMythChecker() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [verdictFilter, setVerdictFilter] = useState("all");
   const [revealFacts, setRevealFacts] = useState(true);

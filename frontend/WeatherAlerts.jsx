@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import { toast } from "react-toastify";
 import {
   FaThermometerHalf,
@@ -24,6 +25,7 @@ import "./WeatherAlerts.css";
  * - Alert history tracking
  */
 const WeatherAlerts = ({ latitude, longitude, location, crop }) => {
+  const { t } = useTranslation();
   const [weather, setWeather] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);

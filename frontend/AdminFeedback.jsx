@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { collection, getDocs, deleteDoc, doc, query, orderBy, getDoc } from "firebase/firestore";
 import { db, auth } from "./lib/firebase";
 import { Star, Trash2, RefreshCw, MessageSquare, TrendingUp, Users, Award, ShieldAlert } from "lucide-react";
@@ -36,6 +37,7 @@ const CATEGORY_LABELS = {
 };
 
 export default function AdminFeedback() {
+  const { t } = useTranslation();
   const [feedbacks, setFeedbacks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [authChecking, setAuthChecking] = useState(true);

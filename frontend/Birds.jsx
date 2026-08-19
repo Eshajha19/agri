@@ -1,6 +1,8 @@
 import React from "react";
 
+import { useTranslation } from 'react-i18next';
 export default function Birds() {
+  const { t } = useTranslation();
   return (
     <div className="birds-layer" aria-hidden="true">
       <svg className="bird bird-1" viewBox="0 0 24 24" fill="none">

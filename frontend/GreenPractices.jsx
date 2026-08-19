@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   Leaf, 
   TrendingUp, 
@@ -27,6 +28,7 @@ const PRACTICES = [
 ];
 
 export default function GreenPractices({ userData, onClose }) {
+  const { t } = useTranslation();
   const [activePractices, setActivePractices] = useState({});
   const [isExporting, setIsExporting] = useState(false);
 

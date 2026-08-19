@@ -1,7 +1,9 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import "./ScheduleCard.css";
 
 const ScheduleCard = ({ schedule }) => {
+  const { t } = useTranslation();
   return (
     <div className={`schedule-card status-${schedule.status}`}>
       <h3>{schedule.crop}</h3>

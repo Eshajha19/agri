@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-toastify';
@@ -45,6 +46,7 @@ const FINANCE_STORAGE_VERSION = 1;
 const MAX_FINANCE_ENTRIES = 250;
 
 export default function FarmFinance() {
+  const { t } = useTranslation();
   const [incomeEntries, setIncomeEntries] = useState([]);
   const [expenseEntries, setExpenseEntries] = useState([]);
   const [expenseTrackerData, setExpenseTrackerData] = useState({

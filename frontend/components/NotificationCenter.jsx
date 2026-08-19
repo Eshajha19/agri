@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { db } from "../firebase"; // Firestore instance
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 

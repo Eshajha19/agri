@@ -49,6 +49,7 @@ export default function PestDetection({ onClose }) {
   }, [onClose]);
 
   const handleImageChange = (file) => {
+  const { t } = useTranslation();
     if (!file) return;
 
     // File validation

@@ -1,9 +1,11 @@
 import React, { useState, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import "./CropQualityGrading.css";
 import Loader from "./Loader";
 import { Wheat, Camera, Search, BarChart2, Lightbulb, Image as ImageIcon } from "lucide-react";
 
 const CropQualityGrading = () => {
+  const { t } = useTranslation();
   const [cropType, setCropType] = useState("tomato");
   const [images, setImages] = useState([]);
   const [assessments, setAssessments] = useState([]);

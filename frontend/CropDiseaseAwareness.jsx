@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaShieldAlt,
   FaStethoscope,
@@ -224,6 +225,7 @@ const diseaseData = [
 ];
 
 const CropDiseaseAwareness = () => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCrop, setSelectedCrop] = useState("All");
 

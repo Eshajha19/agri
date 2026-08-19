@@ -1,9 +1,11 @@
 // frontend/components/FeatureFlagDashboard/FeatureFlagDashboard.jsx
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import './FeatureFlagDashboard.css';
 
 const FeatureFlagDashboard = () => {
+  const { t } = useTranslation();
   const [flags, setFlags] = useState([]);
   const [experiments, setExperiments] = useState([]);
   const [loading, setLoading] = useState(true);

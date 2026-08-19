@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   Radar, 
   RadarChart, 
@@ -29,6 +30,7 @@ import {
 import "./RiskIndex.css";
 
 const RiskIndex = () => {
+  const { t } = useTranslation();
   const [inputs, setInputs] = useState({
     weather: 45,
     disease: 30,

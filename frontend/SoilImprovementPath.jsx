@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./SoilImprovementPath.css";
 
 const STEPS = [
@@ -45,6 +46,7 @@ const STEPS = [
 ];
 
 export default function SoilImprovementPath({ onClose }) {
+  const { t } = useTranslation();
   const [active, setActive] = useState(STEPS[0]);
 
   return (

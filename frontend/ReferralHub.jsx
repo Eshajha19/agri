@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaShareAlt,
   FaWhatsapp,
@@ -17,6 +18,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import "./ReferralHub.css";
 
 export default function ReferralHub() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);

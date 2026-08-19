@@ -91,8 +91,9 @@ import {
    Phone,
    Users,
   CalendarClock,
-  GitBranch,
- } from "lucide-react";
+   GitBranch,
+   Search,
+  } from "lucide-react";
 import { FaSync } from "react-icons/fa";
 import { useAdvisorStore } from "./stores/advisorStore";
 
@@ -237,6 +238,7 @@ showConsultationHistory,
    const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
 const [showYieldHistory, setShowYieldHistory] = useState(false);
     const [locationQuery, setLocationQuery] = useState("");
+  const [featureSearch, setFeatureSearch] = useState("");
     const [showFarmIntelligenceGraph, setShowFarmIntelligenceGraph] = useState(false);
     const [showFertilizerOveruseGuide, setShowFertilizerOveruseGuide] = useState(false);
     const [showSoilImprovementPath, setShowSoilImprovementPath] = useState(false);
@@ -345,6 +347,26 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const normalize = (value) => value.toLowerCase().trim();
+    const query = normalize(featureSearch);
+    const cards = document.querySelectorAll('#advisor-features-grid .card');
+    let visibleCount = 0;
+
+    cards.forEach((card) => {
+      const title = normalize(card.querySelector('h3')?.textContent || '');
+      const desc = normalize(card.querySelector('p')?.textContent || '');
+      const match = !query || title.includes(query) || desc.includes(query);
+      card.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+
+    const noResults = document.getElementById('advisor-no-results');
+    if (noResults) {
+      noResults.style.display = visibleCount === 0 ? '' : 'none';
+    }
+  }, [featureSearch]);
 
   // Derive advisories from the open-meteo snapshot alerts array.
   // weatherService.js already computes these via deriveAlerts() — we just
@@ -616,6 +638,33 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
 
   return (
     <section className="advisor">
+      <style>{`
+        /* Fasal Saathi — premium feature-card UI (presentation only) */
+        .advisor #advisor-features-grid .advisor-feature-layer{position:relative;overflow:hidden;isolation:isolate;transition:border-color .22s ease,box-shadow .22s ease,transform .22s ease}
+        .advisor #advisor-features-grid .advisor-feature-layer::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;border-radius:24px 0 0 24px;background:linear-gradient(180deg,#16a34a,#0f766e);opacity:.9;z-index:-1}
+        .advisor #advisor-features-grid .advisor-feature-layer:hover{border-color:rgba(15,118,110,.22)!important;box-shadow:0 18px 45px rgba(15,23,42,.08)!important}
+        .advisor #advisor-features-grid .advisor-layer-header{position:relative;padding:2px 2px 8px}
+        .advisor #advisor-features-grid .advisor-layer-header>div:first-child{box-shadow:0 8px 22px rgba(15,118,110,.12);border:1px solid rgba(15,118,110,.1)}
+        .advisor #advisor-features-grid .card{position:relative;display:flex;flex-direction:column;min-height:220px;padding:24px!important;border:1px solid rgba(15,23,42,.08)!important;border-radius:20px!important;background:radial-gradient(circle at 100% 0%,rgba(16,185,129,.075),transparent 34%),linear-gradient(145deg,rgba(255,255,255,.99),rgba(248,250,252,.96))!important;box-shadow:0 5px 18px rgba(15,23,42,.055),0 1px 2px rgba(15,23,42,.04)!important;overflow:hidden;cursor:pointer;transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease,border-color .22s ease}
+        .advisor #advisor-features-grid .card::before{content:"";position:absolute;left:0;top:0;width:100%;height:3px;background:linear-gradient(90deg,#16a34a,#0f766e,#14b8a6);transform:scaleX(0);transform-origin:left;transition:transform .26s ease}
+        .advisor #advisor-features-grid .card::after{content:"↗";position:absolute;top:18px;right:18px;width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:rgba(15,118,110,.07);color:#0f766e;font-size:15px;font-weight:800;opacity:0;transform:translate(-4px,4px);transition:opacity .18s ease,transform .18s ease}
+        .advisor #advisor-features-grid .card:hover{transform:translateY(-6px);border-color:rgba(15,118,110,.22)!important;box-shadow:0 18px 38px rgba(15,23,42,.1),0 5px 12px rgba(15,118,110,.07)!important}
+        .advisor #advisor-features-grid .card:hover::before{transform:scaleX(1)}
+        .advisor #advisor-features-grid .card:hover::after{opacity:1;transform:translate(0,0)}
+        .advisor #advisor-features-grid .card:focus-visible{outline:3px solid rgba(20,184,166,.28);outline-offset:3px;border-color:#0f766e!important}
+        .advisor #advisor-features-grid .card .icon{width:56px!important;height:56px!important;min-width:56px;display:grid;place-items:center;margin-bottom:20px;border-radius:16px!important;background:linear-gradient(145deg,rgba(16,185,129,.14),rgba(15,118,110,.07))!important;color:#0f766e!important;border:1px solid rgba(15,118,110,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.8);transition:transform .22s ease,border-color .22s ease}
+        .advisor #advisor-features-grid .card:hover .icon{transform:translateY(-2px) scale(1.04);border-color:rgba(15,118,110,.18)}
+        .advisor #advisor-features-grid .card h3{margin:0 34px 10px 0!important;color:#0f172a!important;font-size:1.04rem!important;line-height:1.35!important;font-weight:800!important;letter-spacing:-.015em}
+        .advisor #advisor-features-grid .card p{margin:0!important;color:#64748b!important;font-size:.9rem!important;line-height:1.65!important;flex:1}
+        .advisor #advisor-features-grid .card .card-badge{align-self:flex-start;margin-top:17px;padding:5px 9px;border-radius:999px;font-size:.68rem;line-height:1;font-weight:800;letter-spacing:.07em;border:1px solid rgba(15,118,110,.12);background:rgba(15,118,110,.07);color:#0f766e}
+        .advisor #advisor-features-grid .card-link-btn{margin-top:16px;align-self:flex-start;border-radius:10px;font-weight:750;transition:transform .18s ease,background .18s ease}
+        .advisor #advisor-features-grid .card-link-btn:hover{transform:translateX(3px)}
+        .advisor #advisor-features-grid .card[style*="239, 68, 68"]{background:radial-gradient(circle at 100% 0%,rgba(239,68,68,.08),transparent 34%),linear-gradient(145deg,rgba(255,255,255,.99),rgba(254,242,242,.96))!important}
+        .advisor #advisor-features-grid .card[style*="249, 115, 22"]{background:radial-gradient(circle at 100% 0%,rgba(249,115,22,.08),transparent 34%),linear-gradient(145deg,rgba(255,255,255,.99),rgba(255,247,237,.96))!important}
+        .advisor #advisor-features-grid .card[style*="6, 95, 70"]{background:radial-gradient(circle at 100% 0%,rgba(6,95,70,.08),transparent 34%),linear-gradient(145deg,rgba(255,255,255,.99),rgba(236,253,245,.96))!important}
+        @media(max-width:768px){.advisor #advisor-features-grid .advisor-feature-layer{padding:20px!important;gap:14px!important;border-radius:20px!important}.advisor #advisor-features-grid .card{min-height:190px;padding:20px!important;border-radius:17px!important}.advisor #advisor-features-grid .card .icon{width:50px!important;height:50px!important;min-width:50px;margin-bottom:16px}.advisor #advisor-features-grid .card h3{font-size:1rem!important}.advisor #advisor-features-grid .card p{font-size:.86rem!important}}
+        @media(prefers-reduced-motion:reduce){.advisor #advisor-features-grid .card,.advisor #advisor-features-grid .card::before,.advisor #advisor-features-grid .card::after,.advisor #advisor-features-grid .card .icon,.advisor #advisor-features-grid .advisor-feature-layer{transition:none!important}}
+      `}</style>
       <div className="floating-icons">
         <span><Sprout /></span>
         <span><Sun /></span>
@@ -672,9 +721,42 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
       <div className="advisor-highlights">
         <h2 className="slide-in"><Layers className="inline-icon" /> <span className="notranslate">Features</span></h2>
         <br />
+        <div className="advisor-search-wrapper">
+          <div className="advisor-search-box">
+            <Search className="advisor-search-icon" size={20} />
+            <input
+              type="text"
+              className="advisor-search-input"
+              placeholder="Search features..."
+              value={featureSearch}
+              onChange={(e) => setFeatureSearch(e.target.value)}
+              aria-label="Search advisor features"
+            />
+            {featureSearch && (
+              <button
+                className="advisor-search-clear"
+                onClick={() => setFeatureSearch("")}
+                aria-label="Clear search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
         <br />
-        <div className="cards">
-          <div
+        <div className="cards" id="advisor-features-grid">
+          <section id="advisor-layer-1" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Calendar size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 01</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>PLAN YOUR FARM</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Make smarter decisions before planting.</p>
+              </div>
+            </div>
+<div
             className="card reveal"
             style={{ cursor: "pointer" }}
             role="button"
@@ -689,8 +771,80 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Seasonal Crop Planner</span></h3>
             <p>Plan your crops throughout the year with seasonal recommendations and crop rotation cycles.</p>
           </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSmartCropRecommendation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSmartCropRecommendation(true); }} aria-label="Smart Crop Recommendation: AI-powered suggestions">
+            <div className="icon" aria-hidden="true">
+              <Sprout size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Smart Crop Recommendation</span></h3>
+            <p>Get AI-powered crop suggestions based on your soil and climate.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRecommendationAdvisor(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRecommendationAdvisor(true); }} aria-label="Crop Advisor: Detailed soil analysis and recommendations">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(16, 185, 129, 0.1)', color: '#10b981'}}>
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Advisor (Soil Analysis)</span></h3>
+            <p>Enter soil parameters for detailed crop compatibility analysis and recommendations.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRotation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRotation(true); }} aria-label="Crop Rotation: Soil health optimization">
+            <div className="icon" aria-hidden="true">
+              <Layers size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Rotation</span></h3>
+            <p>Optimize your soil health with intelligent crop rotation planning.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowProfitCalculator(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfitCalculator(true); }} aria-label="Profit Calculator: ROI analysis">
+            <div className="icon" aria-hidden="true"><IndianRupee size={32} /></div>
+            <h3><span className="notranslate">Profit Calculator</span></h3>
+            <p>Calculate your crop profits and ROI before planting.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
+            <div className="icon" aria-hidden="true"><Map size={32} /></div>
+            <h3><span className="notranslate">3D Farm Planner</span></h3>
+            <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
+          </div>
+<div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowFarmingMap(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMap(true); }}
+            aria-label="Farming Map: Interactive farm viewer"
+          >
+            <div className="icon" aria-hidden="true">
+              <Map size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Farming Map</span></h3>
+            <p>View your fields, weather data, and crop locations on an interactive map.</p>
+          </div>
+<div 
+            className="card reveal" 
+            role="button" 
+            tabIndex={0} 
+            onClick={() => setShowClimateSimulator(true)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowClimateSimulator(true); }} 
+            aria-label="Climate Risk Simulator: Scenario analysis"
+          >
+            <div className="icon" aria-hidden="true">
+              <TrendingDown size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Climate Risk Simulator</span></h3>
+            <p>Evaluate crop performance under different long-term climate scenarios.</p>
+          </div>
+          </section>
 
-          <div
+          <section id="advisor-layer-2" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Book size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 02</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>UNDERSTAND YOUR FARM</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Learn about crops, seasons, risks, and better farming practices.</p>
+              </div>
+            </div>
+<div
             className="card reveal"
             role="button"
             tabIndex={0}
@@ -706,8 +860,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Crop Growth Stage Visual Guide</span></h3>
             <p>Visual lifecycle: Seed → Sprout → Growth → Harvest, with stage-wise care and image examples.</p>
           </div>
-
-          <div
+<div
             className="card reveal"
             role="button"
             tabIndex={0}
@@ -723,30 +876,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Seasonal Farming Strategy Guide</span></h3>
             <p>Season-specific checklists for Kharif, Rabi, and Zaid with field priorities and risk controls.</p>
           </div>
-
-          
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
-            <div className="icon" aria-hidden="true">
-              <MessageSquare size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Farmer Community</span></h3>
-            <p>
-              Connect, share tips, and learn from other farmers in your region.
-            </p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/helpline")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/helpline"); }} aria-label="Emergency Helpline: Get support">
-            <div className="icon" aria-hidden="true">
-              <Landmark size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Emergency Helpline</span></h3>
-            <p>
-              Quick access to emergency farming support and expert advice.
-            </p>
-          </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/blog")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/blog"); }} aria-label="Knowledge Blog: Farming articles">
              <div className="icon" aria-hidden="true">
                <Book size={32} strokeWidth={2} />
              </div>
@@ -755,80 +885,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
                Read articles on crop management, weather, and farming best practices.
              </p>
            </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/disease-awareness")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/disease-awareness"); }} aria-label="Crop Disease Awareness: Learn remedies">
-            <div className="icon" aria-hidden="true">
-              <Info size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Crop Disease Awareness</span></h3>
-            <p>
-              Learn about crop diseases and remedies for better farming.
-            </p>
-          </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
-             <div className="icon" aria-hidden="true">
-               <Bug size={32} strokeWidth={2} />
-             </div>
-             <h3><span className="notranslate">Pest Detection</span></h3>
-             <p>
-               AI-powered pest identification with real-time alerts and treatment recommendations.
-             </p>
-           </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
-             <div className="icon" aria-hidden="true">
-               <Calendar size={32} strokeWidth={2} />
-             </div>
-             <h3><span className="notranslate">Pest Calendar</span></h3>
-             <p>View seasonal pest attack patterns and plan preventive measures accordingly.</p>
-           </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
-            <div className="icon" aria-hidden="true">
-              <Droplets size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Irrigation Guidance</span></h3>
-            <p>
-              Water-saving tips and irrigation schedules tailored to your crops.
-            </p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/market-prices")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/market-prices"); }} aria-label="Market Price Guidance: Price trends">
-            <div className="icon" aria-hidden="true">
-              <IndianRupee size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Market Price Guidance</span></h3>
-            <p>
-              Market trends and price alerts to help you sell at the best time.
-            </p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilChatbot(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilChatbot(true); }} aria-label="Soil Health: AI Chatbot analysis">
-            <div className="icon" aria-hidden="true">
-              <Sprout size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Soil Health</span></h3>
-            <p>Get soil analysis & recommendations via AI chatbot.</p>
-          </div>
-
-          <div
-            className="card reveal"
-            style={{ cursor: "pointer" }}
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowSoilAnalysis(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilAnalysis(true); }}
-            aria-label="Soil Analysis: NPK nutrient analysis"
-          >
-            <div className="icon" aria-hidden="true">
-              <FlaskConical size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Soil Analysis</span></h3>
-            <p>Analyze NPK nutrients and get personalized crop & fertilizer recommendations.</p>
-          </div>
-
-          <div
+<div
             className="card reveal"
             style={{ cursor: "pointer" }}
             role="button"
@@ -843,28 +900,20 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3>Soil Type Guide</h3>
             <p>Explore major soil types in India and find the most suitable crops for your land.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropDiseaseDetection(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropDiseaseDetection(true); }} aria-label="Crop Disease Detection: Upload images">
-            <div className="icon" aria-hidden="true"><Sprout size={32} /></div>
-            <h3><span className="notranslate">Crop Disease Detection</span></h3>
-            <p>Upload plant images to detect diseases and get remedies.</p>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
+            <div className="icon" aria-hidden="true"><Award size={32} /></div>
+            <h3><span className="notranslate">Agri-LMS Academy</span></h3>
+            <p>Access video tutorials on modern farming and earn completion certificates.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowDiseaseLifecycle(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowDiseaseLifecycle(true); }} aria-label="Crop Disease Lifecycle Explorer: View progression and prevention" style={{ border: '2px solid #f97316', background: 'rgba(249, 115, 22, 0.03)' }}>
-            <div className="icon" aria-hidden="true" style={{ background: 'rgba(249, 115, 22, 0.08)', color: '#f97316' }}>
-              <Bug size={32} strokeWidth={2} />
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmingMistakesGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMistakesGuide(true); }} aria-label="Farming Mistakes Awareness: Common mistakes and prevention" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
+              <AlertTriangle size={32} strokeWidth={2} />
             </div>
-            <h3><span className="notranslate">Crop Disease Lifecycle Explorer</span></h3>
-            <p>See disease progression (Early → Mid → Severe) with prevention timing and crop-wise filtering.</p>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>AWARE</div>
+            <h3><span className="notranslate">Farming Mistakes Awareness</span></h3>
+            <p>Learn common farming errors (over-fertilization, wrong irrigation timing, poor seed selection) and how to avoid them.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
-            <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
-            <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
-            <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerOveruseGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerOveruseGuide(true); }} aria-label="Fertilizer Overuse Awareness: Effects, symptoms, recovery" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerOveruseGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerOveruseGuide(true); }} aria-label="Fertilizer Overuse Awareness: Effects, symptoms, recovery" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
             <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
               <FlaskConical size={32} strokeWidth={2} />
             </div>
@@ -872,34 +921,15 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Fertilizer Overuse Awareness</span></h3>
             <p>Understand soil degradation, crop symptoms, and recovery methods after fertilizer misuse.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
-            <div className="icon" aria-hidden="true">
-              <WifiOff size={32} strokeWidth={2} />
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilImprovementPath(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilImprovementPath(true); }} aria-label="Soil Improvement Learning Path: Seasonal, practical steps" style={{ border: '2px solid #065f46', background: 'rgba(6, 95, 70, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(6, 95, 70, 0.08)', color: '#065f46' }}>
+              <Leaf size={32} strokeWidth={2} />
             </div>
-            <h3><span className="notranslate">Offline Access</span></h3>
-            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#065f46', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>PATH</div>
+            <h3><span className="notranslate">Soil Improvement Learning Path</span></h3>
+            <p>Season-by-season practical guide to raise soil organic matter and correct fertility.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
-            <div className="icon" aria-hidden="true"><Bug size={32} /></div>
-            <h3><span className="notranslate">Pest Management</span></h3>
-            <p>Early warnings & organic pest control tips.</p>
-          </div>
-
-<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayScheduler(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayScheduler(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
-             <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
-             <h3><span className="notranslate">Spray Scheduler</span></h3>
-             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
-           </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: Seasonal pest attack calendar">
-             <div className="icon" aria-hidden="true"><Calendar size={32} /></div>
-             <h3><span className="notranslate">Pest Calendar</span></h3>
-             <p>View seasonal pest attack patterns by crop and region for proactive protection.</p>
-           </div>
-
-          <div
+<div
             className="card reveal"
             role="button"
             tabIndex={0}
@@ -915,8 +945,170 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Weather Farming Impact Guide</span></h3>
             <p>See how rain, temperature, wind, and seasons change irrigation, spraying, and crop decisions.</p>
           </div>
+          </section>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
+          <section id="advisor-layer-3" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <FlaskConical size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 03</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>SOIL & FERTILIZER</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Turn soil and nutrient information into practical field decisions.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilChatbot(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilChatbot(true); }} aria-label="Soil Health: AI Chatbot analysis">
+            <div className="icon" aria-hidden="true">
+              <Sprout size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Soil Health</span></h3>
+            <p>Get soil analysis & recommendations via AI chatbot.</p>
+          </div>
+<div
+            className="card reveal"
+            style={{ cursor: "pointer" }}
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowSoilAnalysis(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilAnalysis(true); }}
+            aria-label="Soil Analysis: NPK nutrient analysis"
+          >
+            <div className="icon" aria-hidden="true">
+              <FlaskConical size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Soil Analysis</span></h3>
+            <p>Analyze NPK nutrients and get personalized crop & fertilizer recommendations.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFertilizerPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFertilizerPopup(true); }} aria-label="Fertilizer Recommendations: Plan your nutrition">
+            <div className="icon" aria-hidden="true"><FlaskConical size={32} /></div>
+            <h3><span className="notranslate">Fertilizer Recommendations</span></h3>
+            <p>Get a crop-aware fertilizer plan based on soil pH and nutrient status.</p>
+          </div>
+          </section>
+
+          <section id="advisor-layer-4" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Bug size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 04</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>CROP PROTECTION</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Detect, prevent, and manage diseases, pests, and spray decisions.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/disease-awareness")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/disease-awareness"); }} aria-label="Crop Disease Awareness: Learn remedies">
+            <div className="icon" aria-hidden="true">
+              <Info size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Disease Awareness</span></h3>
+            <p>
+              Learn about crop diseases and remedies for better farming.
+            </p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/pest-detection")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/pest-detection"); }} aria-label="Pest Detection: Identify pests and get treatment">
+             <div className="icon" aria-hidden="true">
+               <Bug size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Detection</span></h3>
+             <p>
+               AI-powered pest identification with real-time alerts and treatment recommendations.
+             </p>
+           </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: View seasonal pest attack patterns">
+             <div className="icon" aria-hidden="true">
+               <Calendar size={32} strokeWidth={2} />
+             </div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns and plan preventive measures accordingly.</p>
+           </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropDiseaseDetection(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropDiseaseDetection(true); }} aria-label="Crop Disease Detection: Upload images">
+            <div className="icon" aria-hidden="true"><Sprout size={32} /></div>
+            <h3><span className="notranslate">Crop Disease Detection</span></h3>
+            <p>Upload plant images to detect diseases and get remedies.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowDiseaseLifecycle(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowDiseaseLifecycle(true); }} aria-label="Crop Disease Lifecycle Explorer: View progression and prevention" style={{ border: '2px solid #f97316', background: 'rgba(249, 115, 22, 0.03)' }}>
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(249, 115, 22, 0.08)', color: '#f97316' }}>
+              <Bug size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Crop Disease Lifecycle Explorer</span></h3>
+            <p>See disease progression (Early → Mid → Severe) with prevention timing and crop-wise filtering.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestManagement(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestManagement(true); }} aria-label="Pest Management: Early warnings">
+            <div className="icon" aria-hidden="true"><Bug size={32} /></div>
+            <h3><span className="notranslate">Pest Management</span></h3>
+            <p>Early warnings & organic pest control tips.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSprayScheduler(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSprayScheduler(true); }} aria-label="Spray Scheduler: Weather-aware spray scheduling">
+             <div className="icon" aria-hidden="true"><CloudRain size={32} /></div>
+             <h3><span className="notranslate">Spray Scheduler</span></h3>
+             <p>Weather-aware spray scheduling &amp; rotation recommendations.</p>
+           </div>
+          </section>
+
+          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: Seasonal pest attack calendar">
+             <div className="icon" aria-hidden="true"><Calendar size={32} /></div>
+             <h3><span className="notranslate">Pest Calendar</span></h3>
+             <p>View seasonal pest attack patterns by crop and region for proactive protection.</p>
+           </div>
+          <section id="advisor-layer-5" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <CloudRain size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 05</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>WEATHER & WATER</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Use weather and water intelligence to protect crop performance.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowIrrigation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowIrrigation(true); }} aria-label="Irrigation Guidance: Water-saving tips">
+            <div className="icon" aria-hidden="true">
+              <Droplets size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Irrigation Guidance</span></h3>
+            <p>
+              Water-saving tips and irrigation schedules tailored to your crops.
+            </p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Smart Crop Reminder Automation: Task reminders and exports">
+            <div className="icon" aria-hidden="true">
+              <CalendarClock size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Smart Crop Reminder Automation</span></h3>
+            <p>Auto-generate sowing, irrigation, spraying, and harvest reminders with calendar export and SMS drafts.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
+            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
+              <AlertTriangle size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
+            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
+          </div>
+          </section>
+
+          <section id="advisor-layer-6" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <BarChart3 size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 06</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>YIELD & MARKET</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Connect production forecasts with prices, quality, finance, and reporting.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/market-prices")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/market-prices"); }} aria-label="Market Price Guidance: Price trends">
+            <div className="icon" aria-hidden="true">
+              <IndianRupee size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Market Price Guidance</span></h3>
+            <p>
+              Market trends and price alerts to help you sell at the best time.
+            </p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldPopup(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldPopup(true); }} aria-label="Yield Prediction: AI-based forecast">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield Prediction</span></h3>
             <p>AI predicts crop yield based on soil &amp; weather data.</p>
@@ -928,169 +1120,55 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
               Open full page →
             </button>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmingMistakesGuide(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMistakesGuide(true); }} aria-label="Farming Mistakes Awareness: Common mistakes and prevention" style={{ border: '2px solid #ef4444', background: 'rgba(239, 68, 68, 0.03)' }}>
-            <div className="icon" aria-hidden="true" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#ef4444' }}>
-              <AlertTriangle size={32} strokeWidth={2} />
-            </div>
-            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>AWARE</div>
-            <h3><span className="notranslate">Farming Mistakes Awareness</span></h3>
-            <p>Learn common farming errors (over-fertilization, wrong irrigation timing, poor seed selection) and how to avoid them.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowYieldHistory(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowYieldHistory(true); }} aria-label="Yield History: Track past predictions and accuracy">
             <div className="icon" aria-hidden="true"><BarChart3 size={32} /></div>
             <h3><span className="notranslate">Yield History</span></h3>
             <p>Track past yield predictions, record actual harvests, and monitor model accuracy.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
-            <div className="icon" aria-hidden="true">
-              <Landmark size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Govt Schemes</span></h3>
-            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
-          </div>
-
-          {(userData?.role === "vendor" || userData?.role === "admin") && (
-            <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
-              <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
-              <h3><span className="notranslate">Agri Marketplace</span></h3>
-              <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
-            </div>
-          )}
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriLMS(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriLMS(true); }} aria-label="Agri-LMS Academy: Online courses">
-            <div className="icon" aria-hidden="true"><Award size={32} /></div>
-            <h3><span className="notranslate">Agri-LMS Academy</span></h3>
-            <p>Access video tutorials on modern farming and earn completion certificates.</p>
-          </div>
-
-           <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
-             <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
-             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
-             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
-           </div>
-
-           {(userData?.role === "vendor" || userData?.role === "admin") && (
-             <div 
-               className="card reveal" 
-               role="button" 
-               tabIndex={0} 
-               onClick={() => setShowSeedVerifier(true)} 
-               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
-               aria-label="Vision-Lite: Seed Authenticity Verifier"
-             >
-               <div className="icon" aria-hidden="true">
-                 <QrCode size={32} strokeWidth={2} />
-               </div>
-               <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
-               <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
-             </div>
-           )}
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmPlanner3D(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmPlanner3D(true); }} aria-label="3D Farm Planner: Interactive design">
-            <div className="icon" aria-hidden="true"><Map size={32} /></div>
-            <h3><span className="notranslate">3D Farm Planner</span></h3>
-            <p>Design your farm layout in interactive 3D. Optimize land usage and irrigation.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farm-finance")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farm-finance"); }} aria-label="Farm Finance: Seasonal P&L tracking">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farm-finance")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farm-finance"); }} aria-label="Farm Finance: Seasonal P&L tracking">
             <div className="icon" aria-hidden="true">
               <IndianRupee size={32} strokeWidth={2} />
             </div>
             <h3><span className="notranslate">Farm Finance</span></h3>
             <p>Track seasonal income, expenses, and overall profitability with visual analytics.</p>
           </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowProfitCalculator(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfitCalculator(true); }} aria-label="Profit Calculator: ROI analysis">
-            <div className="icon" aria-hidden="true"><IndianRupee size={32} /></div>
-            <h3><span className="notranslate">Profit Calculator</span></h3>
-            <p>Calculate your crop profits and ROI before planting.</p>
+<div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
+            <div className="icon" aria-hidden="true">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Bank Reports & Export</span></h3>
+            <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
           </div>
-
-          <div
+<div
             className="card reveal"
-            style={{ cursor: "pointer" }}
+            style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
             role="button"
             tabIndex={0}
-            onClick={() => setShowFarmingMap(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmingMap(true); }}
-            aria-label="Farming Map: Interactive farm viewer"
+            onClick={() => setShowCropGrading(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrading(true); }}
+            aria-label="Crop Grading: Grade your harvest quality"
           >
-            <div className="icon" aria-hidden="true">
-              <Map size={32} strokeWidth={2} />
+            <div className="icon" aria-hidden="true" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <BarChart3 size={32} strokeWidth={2} />
             </div>
-            <h3><span className="notranslate">Farming Map</span></h3>
-            <p>View your fields, weather data, and crop locations on an interactive map.</p>
-          </div>
+            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
+<h3><span className="notranslate">Crop Grading</span></h3>
+             <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
+           </div>
+          </section>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSoilImprovementPath(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSoilImprovementPath(true); }} aria-label="Soil Improvement Learning Path: Seasonal, practical steps" style={{ border: '2px solid #065f46', background: 'rgba(6, 95, 70, 0.03)' }}>
-            <div className="icon" aria-hidden="true" style={{ background: 'rgba(6, 95, 70, 0.08)', color: '#065f46' }}>
-              <Leaf size={32} strokeWidth={2} />
+          <section id="advisor-layer-7" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <GitBranch size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 07</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>AI FARM INTELLIGENCE</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Bring cross-factor agricultural reasoning and research into one intelligence layer.</p>
+              </div>
             </div>
-            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#065f46', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>PATH</div>
-            <h3><span className="notranslate">Soil Improvement Learning Path</span></h3>
-            <p>Season-by-season practical guide to raise soil organic matter and correct fertility.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/calendar")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/calendar"); }} aria-label="Smart Crop Reminder Automation: Task reminders and exports">
-            <div className="icon" aria-hidden="true">
-              <CalendarClock size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Smart Crop Reminder Automation</span></h3>
-            <p>Auto-generate sowing, irrigation, spraying, and harvest reminders with calendar export and SMS drafts.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/share-feedback")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/share-feedback"); }} aria-label="Share Feedback: Help us improve">
-            <div className="icon" aria-hidden="true">
-              <MessageSquare size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Share Feedback</span></h3>
-            <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmDiary(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmDiary(true); }} aria-label="Digital Farm Diary: Log activity">
-            <div className="icon" aria-hidden="true">
-              <Book size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Digital Farm Diary</span></h3>
-            <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRotation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRotation(true); }} aria-label="Crop Rotation: Soil health optimization">
-            <div className="icon" aria-hidden="true">
-              <Layers size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Crop Rotation</span></h3>
-            <p>Optimize your soil health with intelligent crop rotation planning.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowP2PChat(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowP2PChat(true); }} aria-label="P2P Farmer Chat: Connect with others">
-            <div className="icon" aria-hidden="true">
-              <MessageSquare size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">P2P Farmer Chat</span></h3>
-            <p>Connect directly with fellow farmers for real-time advice and support.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowSmartCropRecommendation(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSmartCropRecommendation(true); }} aria-label="Smart Crop Recommendation: AI-powered suggestions">
-            <div className="icon" aria-hidden="true">
-              <Sprout size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Smart Crop Recommendation</span></h3>
-            <p>Get AI-powered crop suggestions based on your soil and climate.</p>
-          </div>
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowCropRecommendationAdvisor(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropRecommendationAdvisor(true); }} aria-label="Crop Advisor: Detailed soil analysis and recommendations">
-            <div className="icon" aria-hidden="true" style={{background: 'rgba(16, 185, 129, 0.1)', color: '#10b981'}}>
-              <FlaskConical size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Crop Advisor (Soil Analysis)</span></h3>
-            <p>Enter soil parameters for detailed crop compatibility analysis and recommendations.</p>
-          </div>
-
-          <div
+<div
             className="card reveal"
             role="button"
             tabIndex={0}
@@ -1106,52 +1184,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Farm Intelligence Graph</span></h3>
             <p>Link soil, weather, crop, pest, and market data into one reasoning graph with AI guidance.</p>
           </div>
-
-          {(userData?.role === "expert" || userData?.role === "admin") && (
-            <div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
-              <div className="icon" aria-hidden="true">
-                <Award size={32} strokeWidth={2} />
-              </div>
-              <h3><span className="notranslate">Expert Reputation</span></h3>
-              <p>Track your community points and earn expert badges for your contributions.</p>
-              <div className="mini-badge-info">
-                {currentReputation} pts · {currentReputation >= 500 ? <Trophy size={14} style={{ color: '#ffd700' }} /> : currentReputation >= 200 ? <Medal size={14} style={{ color: '#c0c0c0' }} /> : currentReputation >= 50 ? <Medal size={14} style={{ color: '#cd7f32' }} /> : <Sprout size={14} />}
-              </div>
-            </div>
-          )}
-
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowGeoAlerts(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowGeoAlerts(true); }} aria-label="Geo-Hashed Disaster Mesh: View nearby alerts">
-            <div className="icon" aria-hidden="true" style={{background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444'}}>
-              <AlertTriangle size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Disaster Mesh Alerts</span></h3>
-            <p>Report and receive highly localized (5km radius) real-time disaster alerts.</p>
-          </div>
-
-          <div className="card reveal bank-report-card" role="button" tabIndex={0} onClick={() => setShowBankReport(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowBankReport(true); }} aria-label="Bank Reports: Export financial data">
-            <div className="icon" aria-hidden="true">
-              <Landmark size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Bank Reports & Export</span></h3>
-            <p>Generate professional PDF/CSV reports for bank loans and financial records.</p>
-          </div>
-
-          <div 
-            className="card reveal" 
-            role="button" 
-            tabIndex={0} 
-            onClick={() => setShowClimateSimulator(true)} 
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowClimateSimulator(true); }} 
-            aria-label="Climate Risk Simulator: Scenario analysis"
-          >
-            <div className="icon" aria-hidden="true">
-              <TrendingDown size={32} strokeWidth={2} />
-            </div>
-            <h3><span className="notranslate">Climate Risk Simulator</span></h3>
-            <p>Evaluate crop performance under different long-term climate scenarios.</p>
-          </div>
-
-          <div 
+<div 
             className="card reveal" 
             role="button" 
             tabIndex={0} 
@@ -1165,8 +1198,45 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">AI Research Advisor</span></h3>
             <p>Get research-backed agricultural advice with verified citations from ICAR, FAO, and more.</p>
           </div>
+          </section>
 
-          <div 
+          <section id="advisor-layer-8" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Users size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 08</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>FARMER SERVICES</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Connect with farmers, experts, support services, and the wider agricultural ecosystem.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/community")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/community"); }} aria-label="Farmer Community: Connect and share tips">
+            <div className="icon" aria-hidden="true">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Farmer Community</span></h3>
+            <p>
+              Connect, share tips, and learn from other farmers in your region.
+            </p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/helpline")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/helpline"); }} aria-label="Emergency Helpline: Get support">
+            <div className="icon" aria-hidden="true">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Emergency Helpline</span></h3>
+            <p>
+              Quick access to emergency farming support and expert advice.
+            </p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowP2PChat(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowP2PChat(true); }} aria-label="P2P Farmer Chat: Connect with others">
+            <div className="icon" aria-hidden="true">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">P2P Farmer Chat</span></h3>
+            <p>Connect directly with fellow farmers for real-time advice and support.</p>
+          </div>
+<div 
             className="card reveal" 
             style={{ border: '2px solid #6366f1', background: 'rgba(99, 102, 241, 0.02)' }}
             role="button" 
@@ -1181,8 +1251,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Expert/KVK Booking</span></h3>
             <p>Book consultations with agricultural experts and KVK advisors via video or audio call.</p>
           </div>
-
-          <div
+<div
             className="card reveal live-consultation-card"
             role="button"
             tabIndex={0}
@@ -1207,8 +1276,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
               Start Consultation
             </button>
           </div>
-
-          <div 
+<div 
             className="card reveal" 
             role="button" 
             tabIndex={0} 
@@ -1222,7 +1290,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">My Consultations</span></h3>
             <p>View your past and upcoming consultation history with experts.</p>
           </div>
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/farming-news")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/farming-news"); }} aria-label="Farming News: Latest agricultural updates">
             <div className="icon" aria-hidden="true">
               <Book size={32} strokeWidth={2} />
             </div>
@@ -1231,8 +1299,74 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
               Stay updated with the latest agricultural news, weather alerts, and policy changes.
             </p>
           </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/share-feedback")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/share-feedback"); }} aria-label="Share Feedback: Help us improve">
+            <div className="icon" aria-hidden="true">
+              <MessageSquare size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Share Feedback</span></h3>
+            <p>Help us improve <span className="notranslate" translate="no">Fasal Saathi</span> with your valuable suggestions.</p>
+          </div>
+            {(userData?.role === "vendor" || userData?.role === "admin") && (
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowAgriMarketplace(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowAgriMarketplace(true); }} aria-label="Agri Marketplace: Equipment rental">
+                          <div className="icon" aria-hidden="true"><ShoppingCart size={32} /></div>
+              <h3><span className="notranslate">Agri Marketplace</span></h3>
+              <p>Rent or list farm equipment locally. Save costs and earn extra.</p>
+            </div>
+            )}
+            {(userData?.role === "vendor" || userData?.role === "admin") && (
+<div 
+                           className="card reveal" 
+               role="button" 
+               tabIndex={0} 
+               onClick={() => setShowSeedVerifier(true)} 
+               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSeedVerifier(true); }} 
+               aria-label="Vision-Lite: Seed Authenticity Verifier"
+             >
+               <div className="icon" aria-hidden="true">
+                 <QrCode size={32} strokeWidth={2} />
+               </div>
+               <h3><span className="notranslate">Vision-Lite: Seed Verifier</span></h3>
+               <p>Scan seed packets to verify authenticity and prevent counterfeit usage.</p>
+             </div>
+            )}
+            {(userData?.role === "expert" || userData?.role === "admin") && (
+<div className="card reveal expert-card" role="button" tabIndex={0} onClick={() => setShowExpertStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowExpertStatus(true); }} aria-label="Expert Reputation: View badges">
+                          <div className="icon" aria-hidden="true">
+                <Award size={32} strokeWidth={2} />
+              </div>
+              <h3><span className="notranslate">Expert Reputation</span></h3>
+              <p>Track your community points and earn expert badges for your contributions.</p>
+              <div className="mini-badge-info">
+                {currentReputation} pts · {currentReputation >= 500 ? <Trophy size={14} style={{ color: '#ffd700' }} /> : currentReputation >= 200 ? <Medal size={14} style={{ color: '#c0c0c0' }} /> : currentReputation >= 50 ? <Medal size={14} style={{ color: '#cd7f32' }} /> : <Sprout size={14} />}
+              </div>
+            </div>
+            )}
+          </section>
 
-          <div 
+          <section id="advisor-layer-9" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Shield size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 09</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>FINANCE, INSURANCE & TRUST</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Manage financial support, traceability, sustainability, and crop-risk documentation.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => navigate("/schemes")} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate("/schemes"); }} aria-label="Govt Schemes: Financial support">
+            <div className="icon" aria-hidden="true">
+              <Landmark size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Govt Schemes</span></h3>
+            <p>Direct subsidies, insurance, and financial benefits for farmers.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowQRTraceability(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQRTraceability(true); }} aria-label="QR-Farm Traceability: Trace your produce">
+             <div className="icon" aria-hidden="true"><QrCode size={32} /></div>
+             <h3><span className="notranslate">QR-Farm Traceability</span></h3>
+             <p>Generate QR codes for your produce. Let customers trace their food from farm to table.</p>
+           </div>
+<div 
             className="card reveal" 
             style={{ border: '2px solid #10b981', background: 'rgba(16, 185, 129, 0.02)' }}
             role="button" 
@@ -1248,8 +1382,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Green Practices & Carbon</span></h3>
             <p>Track eco-friendly practices, calculate carbon impact, and monetize sustainability.</p>
           </div>
-
-          <div
+<div
             className="card reveal"
             style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
             role="button"
@@ -1265,24 +1398,6 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <h3><span className="notranslate">Sustainability Analytics</span></h3>
             <p>Estimate water footprint and carbon emissions per crop season with LCA-style insights.</p>
           </div>
-
-          <div
-            className="card reveal"
-            style={{ border: '2px solid #f59e0b', background: 'rgba(245, 158, 11, 0.02)' }}
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowCropGrading(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowCropGrading(true); }}
-            aria-label="Crop Grading: Grade your harvest quality"
-          >
-            <div className="icon" aria-hidden="true" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
-              <BarChart3 size={32} strokeWidth={2} />
-            </div>
-            <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#f59e0b', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
-<h3><span className="notranslate">Crop Grading</span></h3>
-             <p>Analyze crop quality metrics, get grading recommendations, and estimate market value.</p>
-           </div>
-
 <div
               className="card reveal crop-insurance-card"
               style={{ border: '2px solid #0d9488', background: 'rgba(13, 148, 136, 0.04)' }}
@@ -1298,9 +1413,42 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
              <div style={{ position: 'absolute', top: '12px', right: '12px', background: '#0d9488', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>NEW</div>
              <h3><span className="notranslate">Crop Insurance Claim</span></h3>
              <p>Document crop damage with AI-powered analysis and generate insurance claim reports.</p>
-           </div>
-         </div>
-        
+             </div>
+          </section>
+
+          <section id="advisor-layer-10" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
+            <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
+                <Settings size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#0f766e", marginBottom: "3px" }}>LAYER 10</div>
+                <h3 style={{ margin: 0, fontSize: "clamp(1.15rem, 2vw, 1.45rem)", fontWeight: 800, color: "#0f172a" }}>FARM OPERATIONS</h3>
+                <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: "0.92rem" }}>Manage everyday records, continuity, and on-farm execution.</p>
+              </div>
+            </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowOfflineStatus(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOfflineStatus(true); }} aria-label="Offline Access: PWA Enabled">
+            <div className="icon" aria-hidden="true">
+              <WifiOff size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Offline Access</span></h3>
+            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
+          </div>
+<div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmDiary(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmDiary(true); }} aria-label="Digital Farm Diary: Log activity">
+            <div className="icon" aria-hidden="true">
+              <Book size={32} strokeWidth={2} />
+            </div>
+            <h3><span className="notranslate">Digital Farm Diary</span></h3>
+            <p>Log daily farming activities, set task reminders, and export records as PDF reports.</p>
+          </div>
+          </section>
+        </div>
+<div id="advisor-no-results" className="advisor-no-results" style={{ display: 'none' }}>
+          <Search size={48} strokeWidth={1.5} />
+          <h3>No features found</h3>
+          <p>Try a different keyword like "soil", "weather", "pest", or "crop".</p>
+        </div>
+
         <div className="weather-dashboard">
           <div className="weather-dashboard-header">
             <h2 style={{ margin: 0 }}><CloudRain className="inline-icon" /> Live Weather & Advisories</h2>

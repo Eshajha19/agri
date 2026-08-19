@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useCropRecommendation } from './hooks/useCropRemmendation';
 import './SmartCropRecommendation.css';
 import {
@@ -47,6 +48,7 @@ function SmartCropRecommendation({ onClose }) {
   const [showSeasonDropdown, setShowSeasonDropdown] = useState(false);
 
   const handleSearch = (e) => {
+  const { t } = useTranslation();
     e.preventDefault();
     fetchRecommendations();
   };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import { FaSearch, FaArrowRight, FaClock, FaUser, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
@@ -153,6 +154,7 @@ const CATEGORY_ICONS = {
 };
 
 export default function Blog() {
+  const { t } = useTranslation();
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [bookmarkedArticleIds, setBookmarkedArticleIds] = useState(() =>

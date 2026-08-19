@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +9,7 @@ import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
 import "./ProfileSetup.css";
 
 const ProfileSetup = ({ user, profileCompleted }) => {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
   const [role, setRole] = useState("farmer");

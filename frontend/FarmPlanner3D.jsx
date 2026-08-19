@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Plane, Box, Sphere, Cylinder, PerspectiveCamera, ContactShadows, Environment, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -86,6 +87,7 @@ function DraggableObject({ position, type, isSelected, onSelect }) {
 }
 
 export default function FarmPlanner3D() {
+  const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [activeTool, setActiveTool] = useState('CROP');

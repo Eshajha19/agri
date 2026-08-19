@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./CropComparison.css";
 
 const cropsData = {
@@ -9,6 +10,7 @@ const cropsData = {
 };
 
 export default function CropComparison() {
+  const { t } = useTranslation();
   const [crop1, setCrop1] = useState("wheat");
   const [crop2, setCrop2] = useState("rice");
 

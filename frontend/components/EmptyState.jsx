@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FaFolderOpen,
   FaSearch,
@@ -18,6 +19,7 @@ const EmptyState = ({
   icon = null,
   className = '',
 }) => {
+  const { t } = useTranslation();
   const icons = {
     empty: <FaFolderOpen className="empty-state-icon" />,
     search: <FaSearch className="empty-state-icon" />,

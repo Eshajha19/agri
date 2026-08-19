@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 
+import { useTranslation } from 'react-i18next';
 function ClaimChatbot() {
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -17,6 +18,7 @@ function ClaimChatbot() {
   ];
 
   const handleNext = (value) => {
+  const { t } = useTranslation();
     const keys = ["crop", "damageDate", "photos", "review"];
     setFormData({ ...formData, [keys[step]]: value });
     setStep(step + 1);

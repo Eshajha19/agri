@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Droplets, Info, ThermometerSun, Leaf,
   Activity, ChevronRight, MapPin, X
@@ -7,6 +8,7 @@ import { fetchWeatherByLocation, getCurrentPosition } from './weather/weatherSer
 import './IrrigationGuidance.css';
 
 export default function IrrigationGuidance({ onClose }) {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     cropType: 'Wheat',
     soilType: 'Loamy',

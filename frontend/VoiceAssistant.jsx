@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import './VoiceAssistant.css';
 import apiClient from './lib/apiClient';
@@ -6,6 +7,7 @@ import { parseVoiceNavigation } from './lib/voiceNavigation';
 import { Mic, MicOff, Wheat, User, Bot, Zap, AlertTriangle, Trash2, Lightbulb, Smartphone, Loader2, Send, CheckCircle } from 'lucide-react';
 
 const VoiceAssistant = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [isListening, setIsListening] = useState(false);
   const [isLoading, setIsLoading] = useState(false);

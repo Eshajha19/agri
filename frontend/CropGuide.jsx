@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useMemo, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import "./CropGuide.css";
 import { getBookmarks, toggleBookmark } from "./utils/bookmarkStorage";
 import { Wheat, Lightbulb, X } from "lucide-react";
@@ -47,6 +48,7 @@ const CROPS = [
 const FILTERS = ["All", "Kharif", "Rabi", "Year-round"];
 
 export default function CropGuide() {
+  const { t } = useTranslation();
   const [selectedSeason, setSelectedSeason] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCrop, setActiveCrop] = useState(null);

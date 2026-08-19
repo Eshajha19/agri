@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 
+import { useTranslation } from 'react-i18next';
 function InsuranceComparison({ policies }) {
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState("premiumCost");

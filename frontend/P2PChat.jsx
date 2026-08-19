@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { Send, Lock, ShieldCheck, X, KeyRound } from "lucide-react";
 import { db, auth } from "./lib/firebase";
 import { 
@@ -18,6 +19,7 @@ import { cryptoService } from "./utils/cryptoService";
 import "./P2PChat.css";
 
 const P2PChat = ({ recipient, onClose }) => {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [isRecipientVerified, setIsRecipientVerified] = useState(true); // Mock verification

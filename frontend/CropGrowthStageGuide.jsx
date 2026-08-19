@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { Sprout, Leaf, Wheat } from "lucide-react";
 import "./CropGrowthStageGuide.css";
 
@@ -58,6 +59,7 @@ const STAGES = [
 ];
 
 export default function CropGrowthStageGuide({ onClose }) {
+  const { t } = useTranslation();
   const [activeStage, setActiveStage] = useState(STAGES[0]);
 
   return (

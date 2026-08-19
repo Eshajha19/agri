@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { GitBranch, Loader, RefreshCw, Sparkles, X, ChevronRight, History, MapPin, BrainCircuit, Bug, Droplets, IndianRupee } from "lucide-react";
 import apiClient from "./services/api";
 import "./FarmIntelligenceGraph.css";
@@ -64,6 +65,7 @@ function NodeCard({ node }) {
 }
 
 export default function FarmIntelligenceGraph({ userData, weatherData, onClose }) {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState(() => buildInitialForm(userData, weatherData));
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);

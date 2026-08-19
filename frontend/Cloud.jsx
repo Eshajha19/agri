@@ -1,6 +1,8 @@
 import React from "react";
 
+import { useTranslation } from 'react-i18next';
 export default function Cloud({ className = "", style = {} }) {
+  const { t } = useTranslation();
   return (
     <svg
       className={className}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Cloud,
   CloudRain,
@@ -15,6 +16,7 @@ import {
 import "./SprayReminder.css";
 
 export default function SprayReminder({ onClose, location = "Default" }) {
+  const { t } = useTranslation();
   const [cropName, setCropName] = useState("");
   const [cropStage, setCropStage] = useState("seedling");
   const [sprayType, setSprayType] = useState("pesticide");

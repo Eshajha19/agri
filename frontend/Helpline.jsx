@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   FaPhoneAlt, 
   FaCloudShowersHeavy, 
@@ -86,6 +87,7 @@ const helplineData = [
 ];
 
 const Helpline = () => {
+  const { t } = useTranslation();
   const [activeCard, setActiveCard] = useState(null);
 
   useEffect(() => {

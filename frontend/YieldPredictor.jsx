@@ -13,8 +13,8 @@ import ErrorBoundary from "./ErrorBoundary";
 import "./YieldPredictor.css";
 
 export default function YieldPredictor() {
-  const navigate = useNavigate();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   return (
     <div className="yield-predictor-page">

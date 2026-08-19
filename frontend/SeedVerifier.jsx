@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { Html5Qrcode } from "html5-qrcode";
 import { ShieldCheck, ShieldAlert, QrCode, ScanLine, X, Loader2, Search, Camera, RefreshCw } from "lucide-react";
 import "./SeedVerifier.css";
 
 const SeedVerifier = ({ onClose }) => {
+  const { t } = useTranslation();
   const [scannedData, setScannedData] = useState(null);
   const [status, setStatus] = useState("idle"); // idle, scanning, validating, authentic, invalid, not_found
   const [error, setError] = useState(null);

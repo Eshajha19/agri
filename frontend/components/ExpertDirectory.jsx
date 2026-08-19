@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { useAdvisorStore } from "../stores/advisorStore";
 import { db, auth } from "../lib/firebase";
 import "./ExpertDirectory.css";
@@ -161,6 +162,7 @@ function ExpertDirectory({ userData, onClose, onBookConsultation }) {
   });
 
   const getDaysInMonth = (date) => {
+  const { t } = useTranslation();
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);

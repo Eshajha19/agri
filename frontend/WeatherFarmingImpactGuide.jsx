@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useTranslation } from 'react-i18next';
 import { CloudRain, ThermometerSun, Wind, CalendarDays, Sprout, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import "./WeatherFarmingImpactGuide.css";
 
@@ -75,6 +76,7 @@ function deriveSeasonAdvice(season) {
 }
 
 export default function WeatherFarmingImpactGuide({ onClose, weatherSnapshot, season }) {
+  const { t } = useTranslation();
   const currentWeather = weatherSnapshot?.current || {};
   const dailyWeather = weatherSnapshot?.daily || {};
 

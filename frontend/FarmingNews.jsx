@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaSearch, FaClock, FaUser, FaLeaf, FaSpinner, FaExclamationCircle, FaSync, FaArrowDown } from 'react-icons/fa';
 import { useTheme } from './ThemeContext';
 import { fetchFarmingNews, getNewsCategories, formatNewsDate } from './services/newsApi';
@@ -8,6 +9,7 @@ const AUTO_REFRESH_INTERVAL = 60000;
 const PAGE_SIZE = 10;
 
 export default function FarmingNews({ userData }) {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const [articles, setArticles] = useState([]);
   const [featuredArticles, setFeaturedArticles] = useState([]);

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaCloudSun,
   FaCrosshairs,
@@ -18,6 +19,7 @@ const WEATHER_CACHE_KEY = "agri:weatherSnapshot";
 const ALERT_BAR_SHOWN_KEY = "agri:alertBarActive";
 
 export default function WeatherQuickWidget() {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState(null);
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);

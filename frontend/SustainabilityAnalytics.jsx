@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   BarChart,
   Bar,
@@ -62,6 +63,7 @@ function saveLocalHistory(userId, entry) {
 }
 
 export default function SustainabilityAnalytics({ userData, onClose }) {
+  const { t } = useTranslation();
   const userId = userData?.uid || userData?.id || "anonymous";
 
   const [form, setForm] = useState({

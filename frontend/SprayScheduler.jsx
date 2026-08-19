@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import Calendar from "react-calendar";  
 import "react-calendar/dist/Calendar.css"; 
 import ScheduleCard from "./ScheduleCard";
 import "./SprayScheduler.css";
 
 const SprayScheduler = ({ schedules = [], weatherData: _weatherData, location: _location }) => {
+  const { t } = useTranslation();
   const [viewDate, setViewDate] = useState(new Date());
   const [filter, setFilter] = useState("");
 

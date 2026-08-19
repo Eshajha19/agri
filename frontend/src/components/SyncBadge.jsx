@@ -1,8 +1,10 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { Wifi, WifiOff, CloudUpload, CheckCircle } from 'lucide-react';
 
 export const SyncBadge = () => {
+  const { t } = useTranslation();
   const { isOnline, pendingCount, isSyncing } = useSyncStatus();
 
   const dotColor = !isOnline ? '#ef4444' : isSyncing ? '#3b82f6' : pendingCount > 0 ? '#f59e0b' : '#22c55e';

@@ -1,9 +1,11 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { IndianRupee, TrendingUp, AlertCircle, Plus, Trash2, Trophy } from "lucide-react";
 import { calculateSingleCropProfit, compareProfits } from "./utils/profitCalculator";
 import "./CropProfitCalculator.css";
 
 export default function CropProfitCalculator() {
+  const { t } = useTranslation();
   const [isCompareMode, setIsCompareMode] = useState(false);
 
   const [formData, setFormData] = useState({

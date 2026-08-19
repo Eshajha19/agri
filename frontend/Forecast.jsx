@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { CloudSun, Sun, CloudRain, Cloud, CloudLightning, CloudSnow, Wind, Droplets, MapPin, RefreshCw, AlertTriangle } from "lucide-react";
 import {
   fetchWeatherByLocation,
@@ -46,6 +47,7 @@ function buildInsight(days) {
 }
 
 export default function Forecast() {
+  const { t } = useTranslation();
   const [days, setDays] = useState([]);
   const [locationName, setLocationName] = useState(null);
   const [loading, setLoading] = useState(true);

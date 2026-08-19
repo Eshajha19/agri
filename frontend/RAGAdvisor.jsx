@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { Send, BookOpen, X, Loader, ExternalLink, ChevronDown } from "lucide-react";
 import "./RAGAdvisor.css";
 
@@ -56,6 +57,7 @@ function MessageBubble({ msg }) {
 }
 
 const sanitizeText = (text) => {
+  const { t } = useTranslation();
   if (!text) return "";
   // Strip HTML tags entirely to prevent XSS / raw HTML injection
   let cleaned = text.replace(/<[^>]*>/g, "");

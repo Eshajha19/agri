@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useEffect, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./PersonalizedAdvisory.css";
 import { generateRecommendations } from "./utils/recommendationEngine";
 import { 
@@ -85,6 +86,7 @@ function getCropIcon(cropType) {
 }
 
 export default function PersonalizedRecommendations({ userData, weatherData }) {
+  const { t } = useTranslation();
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);

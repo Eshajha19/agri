@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import { 
   Wifi, 
@@ -16,6 +17,7 @@ import {
 import "./How.css";
 
 export default function How() {
+  const { t } = useTranslation();
   const [activeStep, setActiveStep] = useState(0);
 
   const steps = [

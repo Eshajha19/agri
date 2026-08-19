@@ -24,6 +24,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { useTranslation } from 'react-i18next';
 import "./AgriMarketplace.css";
 import {
   Search, MapPin, Plus, Calendar, Clock, X, AlertCircle, CheckCircle,
@@ -44,6 +45,7 @@ const EMPTY_LISTING = {
 };
 
 export default function AgriMarketplace({ onClose }) {
+  const { t } = useTranslation();
   const [listings, setListings]           = useState([]);
   const [loadingListings, setLoadingListings] = useState(true);
   const [listingsError, setListingsError] = useState("");

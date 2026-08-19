@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaSearch,
   FaBook,
@@ -239,6 +240,7 @@ const glossaryTerms = [
 ];
 
 const Glossary = () => {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
 

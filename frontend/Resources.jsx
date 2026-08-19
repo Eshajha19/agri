@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import "./ResourcesPage.css";
 
@@ -51,6 +52,7 @@ const resourcesData = [
 ];
 
 export default function ResourcesPage() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [visibleCount, setVisibleCount] = useState(3);

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 
+import { useTranslation } from 'react-i18next';
 const ThemeContext = createContext();
 
 /**
@@ -8,6 +9,7 @@ const ThemeContext = createContext();
  * following React's state-driven lifecycle to avoid inconsistencies.
  */
 export const ThemeProvider = ({ children }) => {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState(() => {
     try {
       const storedTheme = localStorage.getItem('agri:theme');

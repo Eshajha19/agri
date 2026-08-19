@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import './Button.css';
 
 const Button = ({
@@ -12,6 +13,7 @@ const Button = ({
   type = 'button',
   ...props
 }) => {
+  const { t } = useTranslation();
   const buttonClasses = `
     btn
     btn-${variant}

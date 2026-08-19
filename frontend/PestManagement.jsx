@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { FaBug, FaSearch, FaExclamationTriangle, FaSeedling, FaFlask, FaShieldAlt, FaWhatsapp, FaArrowCircleRight, FaTimes, FaSpinner, FaHistory } from "react-icons/fa";
 import "./PestManagement.css";
 
 export default function PestManagement({ userData, onClose }) {
+  const { t } = useTranslation();
   const [crop, setCrop] = useState("");
   const [symptoms, setSymptoms] = useState("");
   const [result, setResult] = useState(null);

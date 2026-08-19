@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -827,6 +828,7 @@ class MapErrorBoundary extends React.Component {
 }
 
 export default function FarmingMap(props) {
+  const { t } = useTranslation();
   return (
     <MapErrorBoundary>
       <FarmingMapContent {...props} />

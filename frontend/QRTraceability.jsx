@@ -23,6 +23,7 @@
  *  - No mock/fallback data is ever shown.
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -57,6 +58,7 @@ function saveBatchIds(ids) {
 }
 
 export default function QRTraceability() {
+  const { t } = useTranslation();
   const { id: routeId } = useParams();
 
   // List of batch IDs registered on this device (UI convenience only).

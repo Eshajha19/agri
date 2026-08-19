@@ -1,8 +1,10 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import "./Legal.css";
 
 
 export default function Privacy() {
+  const { t } = useTranslation();
   return (
     <div className="legal-page">
       <h1><span className="notranslate">Privacy Policy</span></h1>

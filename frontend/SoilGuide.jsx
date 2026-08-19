@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { Info, Sprout, Wheat, Droplets, Mountain, Sun, Layers, Leaf } from "lucide-react";
 import "./SoilGuide.css";
 
@@ -66,6 +67,7 @@ const SOIL_TYPES = [
 ];
 
 export default function SoilGuide() {
+  const { t } = useTranslation();
   return (
     <div className="soil-guide-page">
       <div className="soil-guide-header">

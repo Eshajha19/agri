@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./FertilizerOveruseGuide.css";
 
 const TOPICS = [
@@ -39,6 +40,7 @@ const TOPICS = [
 ];
 
 export default function FertilizerOveruseGuide({ onClose }) {
+  const { t } = useTranslation();
   const [active, setActive] = useState(TOPICS[0]);
 
   return (

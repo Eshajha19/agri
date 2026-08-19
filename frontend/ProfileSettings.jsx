@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { auth, db, isFirebaseConfigured } from "./lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
@@ -82,6 +83,7 @@ const WEATHER_PREF_OPTIONS = [
 ];
 
 const ProfileSettings = ({ user, userData }) => {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("en");
   const [role, setRole] = useState("farmer");

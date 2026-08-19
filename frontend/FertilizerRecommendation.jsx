@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, FlaskConical, Info, Sprout, X } from "lucide-react";
 import { generateFertilizerRecommendation } from "./utils/fertilizerRecommendation";
 
@@ -15,6 +16,7 @@ const INITIAL_FORM = {
 };
 
 export default function FertilizerRecommendation({ onClose }) {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);

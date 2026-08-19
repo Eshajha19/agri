@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaMapMarkerAlt,
   FaTimes,
@@ -17,6 +18,7 @@ const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const ALERT_BAR_ACTIVE_KEY = "agri:alertBarActive";
 
 export default function WeatherAlertBar() {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

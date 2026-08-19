@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import './LoadingSkeleton.css';
 
 export const SkeletonLoader = ({ width = '100%', height = '20px', borderRadius = '4px', className = '' }) => (
@@ -72,6 +73,7 @@ export const DashboardSkeleton = () => (
 );
 
 const LoadingSkeleton = ({ type = 'spinner', count = 3, rows = 5, columns = 4 }) => {
+  const { t } = useTranslation();
   switch (type) {
     case 'card':
       return <CardSkeleton count={count} />;

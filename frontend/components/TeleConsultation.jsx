@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { JitsiMeeting } from "@jitsi/react-sdk";
 import "./ExpertDirectory.css";
 import { db, auth } from "../lib/firebase";
@@ -24,6 +25,7 @@ const slugifyRoomName = (value) =>
     .slice(0, 64);
 
 const buildRoomName = (consultation) => {
+  const { t } = useTranslation();
   const baseSeed = consultation?.roomName || consultation?.meetingRoom || consultation?.id || consultation?.expertName || "live-expert-consultation";
   const randomSuffix = typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID().slice(0, 8)

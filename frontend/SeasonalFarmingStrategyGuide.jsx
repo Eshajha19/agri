@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   CalendarDays,
   CloudRain,
@@ -94,6 +95,7 @@ function SeasonIcon({ icon: Icon, accent }) {
 }
 
 export default function SeasonalFarmingStrategyGuide({ onClose }) {
+  const { t } = useTranslation();
   const [activeSeasonId, setActiveSeasonId] = useState(SEASONS[0].id);
 
   const activeSeason = useMemo(

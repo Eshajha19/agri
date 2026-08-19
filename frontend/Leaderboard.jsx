@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { FaTrophy, FaMedal, FaStar, FaSeedling, FaCloudSun, FaUsers } from "react-icons/fa";
 import { useTheme } from "./ThemeContext";
 import { db, isFirebaseConfigured } from "./lib/firebase";
@@ -9,6 +10,7 @@ import "./Leaderboard.css";
 const PAGE_SIZE = 10;
 
 export default function Leaderboard() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
 
   const leaderboardCacheRef = useRef(new Map());

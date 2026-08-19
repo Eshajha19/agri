@@ -1,9 +1,11 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import { FaHome, FaComments, FaLeaf, FaTachometerAlt } from "react-icons/fa";
 import "./NotFound.css";
 
 export default function NotFound() {
+  const { t } = useTranslation();
   return (
     <div className="not-found-container home">
       <div className="not-found-content">

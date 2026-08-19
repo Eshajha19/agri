@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import './Card.css';
 
 const Card = ({
@@ -14,6 +15,7 @@ const Card = ({
   imageAlt = '',
   ...props
 }) => {
+  const { t } = useTranslation();
   const cardClasses = `
     card
     card-${variant}

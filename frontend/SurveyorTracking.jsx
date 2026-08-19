@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 
+import { useTranslation } from 'react-i18next';
 function SurveyorTracking({ surveyData }) {
   const [status, setStatus] = useState(surveyData.status);
 

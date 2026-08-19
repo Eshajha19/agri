@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   format,
   addMonths,
@@ -150,6 +151,7 @@ const sortActivities = (items) => [...items].sort((left, right) => {
 const getActivityStorageKey = (userId) => `agri:farming-calendar:${userId || "guest"}`;
 
 const readLocalActivities = (userId) => {
+  const { t } = useTranslation();
   if (typeof window === "undefined") {
     return [];
   }

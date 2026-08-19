@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -17,6 +18,7 @@ import { migrateUserData } from "./lib/migration";
 import "./Auth.css";
 
 const Auth = () => {
+  const { t } = useTranslation();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

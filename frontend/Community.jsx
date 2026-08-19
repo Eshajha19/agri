@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   MessageSquare, 
   ThumbsUp, 
@@ -84,6 +85,7 @@ function isSpam(text) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Community = () => {
+  const { t } = useTranslation();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   Sprout, 
   MapPin, 
@@ -31,6 +32,7 @@ const SEASONS = [
 ];
 
 export default function SeasonalCropPlanner() {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     location: "Maharashtra",
     season: "Kharif",

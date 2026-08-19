@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { FaExclamationCircle, FaArrowRight, FaRedo, FaPhoneAlt } from "react-icons/fa";
 import "./ClaimRejectionDetails.css";
 
@@ -16,6 +17,7 @@ export default function ClaimRejectionDetails({
   rejectionDetails = [],
   onResubmitClick = null,
 }) {
+  const { t } = useTranslation();
   // Default fallback rejection reasons if none are provided
   const reasons = rejectionDetails.length > 0 ? rejectionDetails : [
     {

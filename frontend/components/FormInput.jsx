@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaCheck, FaTimes, FaExclamationCircle } from 'react-icons/fa';
 import './FormInput.css';
 
@@ -7,7 +8,8 @@ const FormInput = ({
   type = 'text',
   placeholder = '',
   value = '',
-  onChange = () => {},
+  onChange = () => {
+  const { t } = useTranslation();},
   error = null,
   success = false,
   disabled = false,

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./FarmingMistakesGuide.css";
 
 const MISTAKES = [
@@ -49,6 +50,7 @@ const MISTAKES = [
 ];
 
 export default function FarmingMistakesGuide({ onClose }) {
+  const { t } = useTranslation();
   const [active, setActive] = useState(MISTAKES[0]);
 
   return (

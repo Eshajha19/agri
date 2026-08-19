@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 
+import { useTranslation } from 'react-i18next';
 function EmergencyReport() {
   const [event, setEvent] = useState("");
   const [photo, setPhoto] = useState(null);
@@ -9,6 +10,7 @@ function EmergencyReport() {
   const events = ["Flood", "Hailstorm", "Cyclone", "Pest Outbreak", "Drought"];
 
   const detectLocation = () => {
+  const { t } = useTranslation();
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {

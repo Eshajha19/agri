@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, ReferenceLine
@@ -14,6 +15,7 @@ import Loader from "./Loader";
 import LastUpdated from "./LastUpdated";
 
 const MarketPrices = () => {
+  const { t } = useTranslation();
   const [prices, setPrices] = useState([]);
   const [trends, setTrends] = useState([]);
   const [loading, setLoading] = useState(true);

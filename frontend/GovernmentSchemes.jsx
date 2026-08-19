@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaSearch, FaExternalLinkAlt, FaInfoCircle, FaUserCheck,
   FaCheckCircle, FaFilter, FaArrowRight, FaClipboardList,
@@ -158,6 +159,7 @@ function computeEligibility(scheme, userProfile) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Schemes() {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm]         = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [userProfile, setUserProfile]       = useState(null);

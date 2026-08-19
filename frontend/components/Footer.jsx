@@ -1,9 +1,11 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import { FaSeedling, FaPhoneAlt, FaGlobe } from "react-icons/fa";
 import "./Footer.css";
 
 const Footer = () => {
+  const { t } = useTranslation();
   return (
     <footer className="global-footer" role="contentinfo">
         <div className="footer-content">

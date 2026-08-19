@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useRef
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import './AgriLMS.css';
 import {
   Play,
@@ -229,6 +230,7 @@ function downloadCertificate({
 // ---------------------------------------------------------------------------
 
 export default function AgriLMS() {
+  const { t } = useTranslation();
   const [activeCourse, setActiveCourse] =
     useState(null);
 

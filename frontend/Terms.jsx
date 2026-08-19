@@ -1,7 +1,9 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import "./Legal.css";
 
 export default function Terms() {
+  const { t } = useTranslation();
   return (
     <div className="legal-page">
       <h1><span className="notranslate">Terms of Service</span></h1>

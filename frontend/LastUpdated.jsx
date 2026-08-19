@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { formatDistanceToNow, format } from "date-fns";
 import { FaClock } from "react-icons/fa";
 
 export default function LastUpdated({ timestamp }) {
+  const { t } = useTranslation();
   const [timeAgo, setTimeAgo] = useState(() => {
     if (!timestamp) return "";
     try {

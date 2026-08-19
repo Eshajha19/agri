@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Leaf,
   FlaskConical,
@@ -211,6 +212,7 @@ function getUpdateFrequency(score) {
 }
 
 export default function SoilAnalysis() {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({ nitrogen: "", phosphorus: "", potassium: "" });
   const [errors, setErrors] = useState({});
   const [results, setResults] = useState(null);

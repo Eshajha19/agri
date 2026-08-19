@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, ReferenceLine,
@@ -43,6 +44,7 @@ function deriveDisplayFields(data) {
 }
 
 const ClimateSimulator = ({ isOpen, onClose, userData }) => {
+  const { t } = useTranslation();
   const [tempDelta, setTempDelta]   = useState(0);
   const [rainDelta, setRainDelta]   = useState(0);
   const [result, setResult]         = useState(null);

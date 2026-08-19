@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { useParams, Link } from "react-router-dom";
 import { FaArrowLeft, FaClock, FaUser, FaCalendarAlt, FaLeaf, FaCloudSun, FaLandmark, FaBug, FaTint, FaSeedling, FaBookmark, FaRegBookmark } from "react-icons/fa";
 import "./Blog.css";
@@ -417,6 +418,7 @@ const CATEGORY_ICONS = {
 };
 
 export default function BlogDetail() {
+  const { t } = useTranslation();
   const { id } = useParams();
   const post = BLOG_POSTS.find((p) => p.id === parseInt(id, 10));
   const [isBookmarked, setIsBookmarked] = useState(false);

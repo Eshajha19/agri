@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { HelpCircle, ChevronDown, ChevronUp, MessageCircle, Mail, Phone } from "lucide-react";
 import "./FAQ.css";
 
@@ -30,6 +31,7 @@ const FAQ_DATA = [
 ];
 
 export default function FAQ() {
+  const { t } = useTranslation();
   const [activeIndex, setActiveIndex] = useState(null);
 
   const toggleFAQ = (index) => {

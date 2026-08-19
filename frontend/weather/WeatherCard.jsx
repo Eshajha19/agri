@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaBell,
   FaCrosshairs,
@@ -71,6 +72,7 @@ export default function WeatherCard({
   title = "Hyperlocal Weather Intelligence",
   subtitle = "AI-powered alerts, crop advisories & farming insights.",
 }) {
+  const { t } = useTranslation();
   const cropOptions = getAvailableCrops();
 
   const {

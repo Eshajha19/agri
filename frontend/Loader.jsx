@@ -1,7 +1,9 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import './Loader.css';
 
 const Loader = ({ fullPage = false, message = "Loading..." }) => {
+  const { t } = useTranslation();
   return (
     <div className={`loader-container ${fullPage ? 'full-page' : ''}`} role="status" aria-live="polite" aria-busy="true">
       <div className="loader-content">

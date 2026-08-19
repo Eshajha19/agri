@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import "./IrrigationCard.css";
 
 const methods = [
@@ -17,6 +18,7 @@ const methods = [
 ];
 
 export default function IrrigationCard() {
+  const { t } = useTranslation();
   return (
     <div className="irrigation-card">
       <h2>🚜 Irrigation Method Learning System</h2>

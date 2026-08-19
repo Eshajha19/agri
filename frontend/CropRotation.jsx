@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { FaHistory, FaFlask, FaSeedling, FaChartPie, FaArrowRight, FaSync, FaBrain, FaCheckCircle } from "react-icons/fa";
 import "./CropRotation.css";
 
@@ -28,6 +29,7 @@ const RECOMMENDATION_LOGIC = {
 };
 
 export default function CropRotation() {
+  const { t } = useTranslation();
   const [history, setHistory] = useState([]);
   const [currentCrop, setCurrentCrop] = useState("");
   const [soilType, setSoilType] = useState(SOIL_TYPES[0]);

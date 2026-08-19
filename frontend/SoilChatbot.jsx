@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import "./SoilChatbot.css";
 import {
   FaMicrophone,
@@ -49,6 +50,7 @@ function SoilChatbot({ onClose }) {
   };
 
   const handleImageUpload = (e) => {
+  const { t } = useTranslation();
     const file = e.target.files[0];
 
     if (file) {

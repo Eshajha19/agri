@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import './CropRecommendationAdvisor.css';
 import {
   Leaf,
@@ -18,6 +19,7 @@ import {
 import apiClient from './services/api';
 
 export default function CropRecommendationAdvisor({ onClose }) {
+  const { t } = useTranslation();
   // Form state
   const [formData, setFormData] = useState({
     soil_ph: 6.5,

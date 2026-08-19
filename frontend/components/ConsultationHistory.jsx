@@ -19,6 +19,7 @@
  *  - Avatar images fall back to a local placeholder instead of randomuser.me.
  */
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from 'react-i18next';
 import { useAdvisorStore } from "../stores/advisorStore";
 import { db, auth } from "../lib/firebase";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
@@ -102,6 +103,7 @@ function ConsultationHistory({ onClose }) {
   });
 
   const getStatusIcon = (status) => {
+  const { t } = useTranslation();
     switch (status) {
       case "scheduled":   return <Calendar   size={16} className="status-scheduled"  />;
       case "completed":   return <CheckCircle size={16} className="status-completed"  />;

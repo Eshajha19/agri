@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { FaFileInvoiceDollar, FaDownload, FaShieldAlt, FaCheckCircle, FaSpinner, FaHistory, FaExclamationTriangle } from "react-icons/fa";
 import "./BankReports.css";
 import apiClient from "./lib/apiClient";
@@ -16,6 +17,7 @@ const AREA_MIN_ACRES = 0.1;
 const AREA_MAX_ACRES = 10_000;       // 10,000 acres — large but plausible
 
 const BankReports = ({ userData }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});

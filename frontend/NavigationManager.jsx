@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { useLocation } from "react-router-dom";
 
 /**
@@ -17,6 +18,7 @@ import { useLocation } from "react-router-dom";
  * @returns {null} This component doesn't render any UI, it only handles side effects.
  */
 const NavigationManager = () => {
+  const { t } = useTranslation();
   // Access the current location (pathname, search, hash) from React Router
   const { pathname, hash } = useLocation();
 

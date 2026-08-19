@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   Cpu, MapPin, Layers, Droplets, Wallet, Calendar,
   Sprout, BarChart2, FlaskConical, Zap, AlertTriangle,
@@ -58,6 +59,7 @@ const StatBox = ({ label, value, sub, color }) => (
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function SmartFarmAutopilot() {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     farm_name: "", state: "Maharashtra", district: "",
     area_acres: "", soil_type: "Black", season: "Kharif",

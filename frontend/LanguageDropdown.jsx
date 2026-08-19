@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, Check } from "lucide-react";
 
 function LanguageDropdown({ options, value, onChange }) {
@@ -26,6 +27,7 @@ function LanguageDropdown({ options, value, onChange }) {
   // Close on outside click
   useEffect(() => {
     const handleOutsideClick = (e) => {
+  const { t } = useTranslation();
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false);
         setSearch("");

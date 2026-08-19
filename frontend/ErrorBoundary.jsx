@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaExclamationTriangle, FaRedo, FaTimesCircle, FaCheckCircle } from 'react-icons/fa';
 
 class ErrorBoundary extends React.Component {

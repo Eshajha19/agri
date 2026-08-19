@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { auth } from "./lib/firebase";
 import {
   Star,
@@ -64,6 +65,7 @@ const TESTIMONIALS = [
 ];
 
 export default function Feedback() {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     name: "",
     cropType: "",

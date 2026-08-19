@@ -1,9 +1,11 @@
 ﻿import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { syncService } from '../services/syncConflictService';
 import './SyncStateManager.css';
 
 export default function SyncStateManager() {
+  const { t } = useTranslation();
   const [syncState, setSyncState] = useState('synced');
   const [pendingCount, setPendingCount] = useState(0);
   const [showDetails, setShowDetails] = useState(false);

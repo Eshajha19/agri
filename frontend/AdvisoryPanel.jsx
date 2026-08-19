@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import {
   FaBell,
   FaCheckCircle,
@@ -118,6 +119,7 @@ function buildLocalFallbackAdvisories(userData, weatherSnapshot) {
 }
 
 export default function AdvisoryPanel({ userData }) {
+  const { t } = useTranslation();
   const [weatherSnapshot, setWeatherSnapshot] = useState(() => getStoredWeatherSnapshot());
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);

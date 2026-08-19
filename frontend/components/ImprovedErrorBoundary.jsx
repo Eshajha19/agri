@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaExclamationTriangle, FaHome, FaRedo } from 'react-icons/fa';
 import Button from './Button';
 import './ImprovedErrorBoundary.css';

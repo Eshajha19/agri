@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { TrendingUp, TrendingDown, Activity, Zap, AlertTriangle } from "lucide-react";
 import "./MLModelDashboard.css";
 
 const MLModelDashboard = () => {
+  const { t } = useTranslation();
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(null);
   const [abTests, setAbTests] = useState([]);

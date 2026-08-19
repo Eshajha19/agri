@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
+import { useTranslation } from 'react-i18next';
 import { Link } from "react-router-dom";
 import {
   FaUser,
@@ -225,6 +226,7 @@ const formatFarmArea = (value) => {
 };
 
 export default function Dashboard({ userData }) {
+  const { t } = useTranslation();
   const name = userData?.displayName || "Farmer";
   const preferredLang = userData?.language || "en";
   const normalizedFarmArea = useMemo(

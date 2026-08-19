@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from 'react-i18next';
 import "./CropDiseaseLifecycleExplorer.css";
 
 const CROPS = ["Wheat", "Rice", "Maize", "Potato", "Cotton"];
@@ -33,6 +34,7 @@ const DEFAULT_DATA = {
 };
 
 export default function CropDiseaseLifecycleExplorer({ onClose }) {
+  const { t } = useTranslation();
   const [crop, setCrop] = useState(CROPS[0]);
   const data = DEFAULT_DATA[crop] || DEFAULT_DATA["Wheat"];
   const [activeStage, setActiveStage] = useState(data.stages[0]);

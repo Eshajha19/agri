@@ -11,12 +11,12 @@ import { useTranslation } from "react-i18next";
 import "./Contributors.css";
 
 export default function Contributors() {
+  const { t } = useTranslation();
   const [contributors, setContributors] = useState([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const { t } = useTranslation();
 
   useEffect(() => {
     const loadContributors = async () => {

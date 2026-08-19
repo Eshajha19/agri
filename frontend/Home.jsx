@@ -1,4 +1,5 @@
 // import React from "react";
+import { useTranslation } from 'react-i18next';
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -307,6 +308,7 @@ const Birds = () => (
 
 // ─── Home component ───────────────────────────────────────────────────────────
 export default function Home({ user }) {
+  const { t } = useTranslation();
   
     const initialQuoteIndex = dailyQuotes.findIndex(
       (quote) => quote.text === getDailyQuote().text

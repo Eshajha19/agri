@@ -35,6 +35,7 @@ const CROP_OPTIONS = [
 ];
 
 const normalizeDiseaseKey = (value) => {
+  const { t } = useTranslation();
   const normalized = String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")

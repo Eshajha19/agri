@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import "./ClaimTimeline.css";
 
 function ClaimTimeline({ stages, currentStage }) {

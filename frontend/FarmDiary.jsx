@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'react-toastify';
@@ -26,6 +27,7 @@ const DIARY_STORAGE_VERSION = 1;
 const MAX_DIARY_ENTRIES = 250;
 
 export default function FarmDiary({ onClose }) {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
