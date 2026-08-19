@@ -1047,11 +1047,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
            </div>
           </section>
 
-          <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowPestCalendar(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowPestCalendar(true); }} aria-label="Pest Calendar: Seasonal pest attack calendar">
-             <div className="icon" aria-hidden="true"><Calendar size={32} /></div>
-             <h3><span className="notranslate">Pest Calendar</span></h3>
-             <p>View seasonal pest attack patterns by crop and region for proactive protection.</p>
-           </div>
+          
           <section id="advisor-layer-5" className="advisor-feature-layer" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "18px", padding: "28px", margin: "8px 0", borderRadius: "24px", border: "1px solid rgba(15, 118, 110, 0.14)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.72))", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)" }}>
             <div className="advisor-layer-header" style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "14px", marginBottom: "2px" }}>
               <div style={{ width: "48px", height: "48px", borderRadius: "14px", display: "grid", placeItems: "center", background: "rgba(15,118,110,0.1)", color: "#0f766e", flexShrink: 0 }}>
