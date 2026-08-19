@@ -1,5 +1,13 @@
 import emailjs from "@emailjs/browser";
 
+const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+const SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+const TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+
+if (PUBLIC_KEY) {
+  emailjs.init(PUBLIC_KEY);
+}
+
 const ACTIVITY_TYPE_LABELS = {
   sowing: "Sowing",
   irrigation: "Irrigation",
@@ -347,13 +355,14 @@ export const sendDailyReminderEmail = async ({
   upcomingReminders = [],
   appName = "Fasal Saathi",
 }) => {
-  const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-  const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
-  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-
-  if (!serviceId || !templateId || !publicKey) {
+  if (!SERVICE_ID || !TEMPLATE_ID || !PUBLIC_KEY) {
+    const missing = [];
+    if (!SERVICE_ID) missing.push("VITE_EMAILJS_SERVICE_ID");
+    if (!TEMPLATE_ID) missing.push("VITE_EMAILJS_TEMPLATE_ID");
+    if (!PUBLIC_KEY) missing.push("VITE_EMAILJS_PUBLIC_KEY");
     throw new Error(
-      "EmailJS is not configured. Please set VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_TEMPLATE_ID, and VITE_EMAILJS_PUBLIC_KEY."
+      `EmailJS is not configured. Missing env vars: ${missing.join(", ")}. ` +
+      "Add them in Vercel Dashboard → Project Settings → Environment Variables."
     );
   }
 
@@ -393,7 +402,15 @@ export const sendDailyReminderEmail = async ({
     }).length,
   };
 
-  return emailjs.send(serviceId, templateId, templateParams, publicKey);
+  try {
+    const result = await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams);
+    console.log("[EmailJS] Reminder sent successfully:", result.status, result.text);
+    return result;
+  } catch (error) {
+    console.error("[EmailJS] Failed to send reminder:", error);
+    const message = error?.text || error?.message || "EmailJS delivery failed.";
+    throw new Error(`EmailJS error (${error?.status || "network"}): ${message}`);
+  }
 };
 
 export default {

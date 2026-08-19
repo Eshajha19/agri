@@ -1,16 +1,35 @@
-import emailjs from "@emailjs/browser";
+const EMAILJS_API = "https://api.emailjs.com/api/v1.0/email/send";
 
-export function sendEmailNotification(toEmail, subject, message) {
-  emailjs.send(
-    import.meta.env.VITE_EMAILJS_SERVICE_ID,
-    import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
-    {
-      to_email: toEmail,
-      subject,
-      message
-    },
-    import.meta.env.VITE_EMAILJS_PUBLIC_KEY
-  )
-  .then(() => console.log("Email sent"))
-  .catch(err => console.error("Email failed:", err));
+export async function sendEmailNotification(toEmail, subject, message) {
+  const serviceId = process.env.VITE_EMAILJS_SERVICE_ID;
+  const templateId = process.env.VITE_EMAILJS_TEMPLATE_ID;
+  const publicKey = process.env.VITE_EMAILJS_PUBLIC_KEY;
+
+  if (!serviceId || !templateId || !publicKey) {
+    throw new Error(
+      "EmailJS is not configured. Set VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_TEMPLATE_ID, and VITE_EMAILJS_PUBLIC_KEY."
+    );
+  }
+
+  const response = await fetch(EMAILJS_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: serviceId,
+      template_id: templateId,
+      user_id: publicKey,
+      template_params: {
+        to_email: toEmail,
+        subject,
+        message,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`EmailJS failed (${response.status}): ${text}`);
+  }
+
+  console.log("Email sent via EmailJS REST API");
 }
