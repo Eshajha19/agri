@@ -1428,7 +1428,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
               <WifiOff size={32} strokeWidth={2} />
             </div>
             <h3><span className="notranslate">Offline Access</span></h3>
-            <p>Fasal Saathi works offline! You can use the app anytime, even without internet connectivity.</p>
+            <p><span translate="no">Fasal Saathi</span> works offline! You can use the app anytime, even without internet connectivity.</p>
           </div>
 <div className="card reveal" role="button" tabIndex={0} onClick={() => setShowFarmDiary(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowFarmDiary(true); }} aria-label="Digital Farm Diary: Log activity">
             <div className="icon" aria-hidden="true">
@@ -1731,7 +1731,7 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             <div className="report-preview-box">
               <div className="preview-header">
                 <Sprout className="preview-logo" />
-                <h3>Fasal Saathi AI Advisor</h3>
+                <h3><span translate="no">Fasal Saathi</span> AI Advisor</h3>
               </div>
               <div className="preview-body">
                 <div className="preview-row">
@@ -1973,8 +1973,8 @@ const [showYieldHistory, setShowYieldHistory] = useState(false);
             </h2>
             <p>
               {(!navigator.onLine || window.matchMedia('(display-mode: standalone)').matches)
-                ? "You are currently using Fasal Saathi in offline/PWA mode. Core features are fully functional without an internet connection."
-                : "Fasal Saathi is available as a Progressive Web App (PWA). You can use it even when you don't have internet access!"
+                ? ["You are currently using ", <span translate="no">Fasal Saathi</span>, " in offline/PWA mode. Core features are fully functional without an internet connection."]
+                : [<span translate="no">Fasal Saathi</span>, " is available as a Progressive Web App (PWA). You can use it even when you don't have internet access!"]
               }
             </p>
             {navigator.onLine && !window.matchMedia('(display-mode: standalone)').matches && (

@@ -193,8 +193,8 @@ export default function RetrainingPipelineMonitor() {
                 Retraining Pipeline Monitor
               </h1>
             </div>
-            <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
-              Automated model retraining on drift breach · Fasal Saathi ML
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
+              Automated model retraining on drift breach · <span translate="no">Fasal Saathi</span> ML
             </p>
           </div>
           <button

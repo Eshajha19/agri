@@ -221,7 +221,7 @@ const SeedVerifier = ({ onClose }) => {
       </div>
 
       <div className="verifier-footer">
-        <p>© 2026 Fasal Saathi AI Vision Services</p>
+        <p>© 2026 <span translate="no">Fasal Saathi</span> AI Vision Services</p>
       </div>
     </div>
   );

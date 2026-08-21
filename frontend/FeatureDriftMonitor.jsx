@@ -199,7 +199,7 @@ export default function FeatureDriftMonitor() {
               </h1>
             </div>
             <p style={{ margin:0, fontSize:12, color:"#6b7280" }}>
-              Training-serving skew detection · Fasal Saathi ML Pipeline
+              Training-serving skew detection · <span translate="no">Fasal Saathi</span> ML Pipeline
             </p>
           </div>
           <button

@@ -215,7 +215,7 @@ export default function PredictionExplainer() {
             </h1>
           </div>
           <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
-            SHAP feature importance · Fasal Saathi XGBoost Yield Model
+            SHAP feature importance · <span translate="no">Fasal Saathi</span> XGBoost Yield Model
           </p>
         </div>
 

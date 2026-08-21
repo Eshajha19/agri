@@ -569,7 +569,7 @@ const ProfileSettings = ({ user, userData }) => {
               <h2 id="privacy-security-title">Privacy & Security</h2>
               <p>
                 Permanently delete your account and remove your profile, farm data, consultations, WhatsApp subscription,
-                and other stored personal records from Fasal Saathi.
+                and other stored personal records from <span translate="no">Fasal Saathi</span>.
               </p>
             </div>
           </div>

@@ -142,7 +142,7 @@ const testimonials = [
     location: "Maharashtra",
     text: (
       <>
-        <span className="notranslate">Fasal Saathi</span> helped me increase my
+        <span className="notranslate" translate="no">Fasal Saathi</span> helped me increase my
         rice yield by 30% this season!
       </>
     ),
@@ -506,7 +506,7 @@ export default function Home({ user }) {
 
       <section className="how-demo-section">
         <div className="section-header">
-          <h2>How to Use Fasal Saathi</h2>
+          <h2>How to Use <span translate="no">Fasal Saathi</span></h2>
           <p>Follow these simple steps to get AI-powered farming advice</p>
         </div>
 
@@ -621,7 +621,7 @@ export default function Home({ user }) {
           </h2>
           <p className="subtitle">
             Meet the amazing people behind{" "}
-            <span className="notranslate">Fasal Saathi</span>
+            <span className="notranslate" translate="no">Fasal Saathi</span>
           </p>
         </div>
         <div className="contributors-home-card">

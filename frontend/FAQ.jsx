@@ -46,7 +46,7 @@ export default function FAQ() {
             <HelpCircle size={40} className="faq-main-icon" />
           </div>
           <h1>Frequently Asked Questions</h1>
-          <p className="faq-subtitle">Find quick answers to common queries about Fasal Saathi and modern farming.</p>
+          <p className="faq-subtitle">Find quick answers to common queries about <span translate="no">Fasal Saathi</span> and modern farming.</p>
         </div>
 
         <div className="faq-list">
