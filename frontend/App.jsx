@@ -118,6 +118,12 @@ import { syncOfflineRequests } from "./lib/syncOfflineRequests";
 // CSS
 import "./App.css";
 import { LANGUAGE_OPTIONS } from "./lib/languageOptions";
+import {
+  synchronizeTranslation,
+  allowUserInterfaceTranslation,
+  refreshGoogleTranslation,
+  cleanupGoogleTranslate,
+} from "./lib/googleTranslate";
 
 const getInitialLanguage = () => {
   // Always default to English when the user enters the site
@@ -133,161 +139,6 @@ const normalizeUserProfile = (profile) => {
     irrigationType: profile.irrigationType ?? profile.irrigationMethod ?? "",
   };
 };
-
-// ============================================
-// Google Translate Synchronization Utilities
-// ============================================
-
-const GOOGLE_TRANSLATE_TIMEOUT = 15000;
-const GOOGLE_TRANSLATE_SYNC_DELAY = 1200;
-
-let googleTranslateObserver = null;
-let googleTranslateRetryTimeout = null;
-let lastAppliedLanguage = null;
-let translateInitializationInProgress = false;
-
-/**
- * Apply translation only when necessary
- */
-const applyGoogleTranslate = (langCode) => {
-  try {
-    const select = document.querySelector(".goog-te-combo");
-
-    if (!select) {
-      return false;
-    }
-
-    // Prevent redundant re-application
-    if (select.value === langCode && lastAppliedLanguage === langCode) {
-      return true;
-    }
-
-    select.value = langCode;
-
-    select.dispatchEvent(
-      new Event("change", { bubbles: true })
-    );
-
-    lastAppliedLanguage = langCode;
-
-    return true;
-  } catch (error) {
-    console.error(
-      "Google Translate apply error:",
-      error
-    );
-
-    return false;
-  }
-};
-
-/**
- * Wait for Google Translate widget with MutationObserver
- */
-const waitForGoogleTranslateWidget = (
-  timeoutMs = GOOGLE_TRANSLATE_TIMEOUT
-) => {
-  return new Promise((resolve, reject) => {
-    const existingWidget = document.querySelector(
-      ".goog-te-combo"
-    );
-
-    if (existingWidget) {
-      resolve(existingWidget);
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          "Google Translate widget initialization timeout"
-        )
-      );
-    }, timeoutMs);
-
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-
-      if (googleTranslateObserver) {
-        googleTranslateObserver.disconnect();
-        googleTranslateObserver = null;
-      }
-    };
-
-    googleTranslateObserver = new MutationObserver(() => {
-      const widget = document.querySelector(
-        ".goog-te-combo"
-      );
-
-      if (widget) {
-        cleanup();
-        resolve(widget);
-      }
-    });
-
-    googleTranslateObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  });
-};
-
-/**
- * Robust translation synchronization
- */
-const applyGoogleTranslateRobust = async (
-  langCode,
-  options = {}
-) => {
-  const {
-    retry = true,
-    onReady,
-    onError,
-  } = options;
-
-  // Prevent overlapping initialization calls
-  if (translateInitializationInProgress) {
-    return;
-  }
-
-  translateInitializationInProgress = true;
-
-  try {
-    await waitForGoogleTranslateWidget();
-
-    const applied = applyGoogleTranslate(langCode);
-
-    if (!applied) {
-      throw new Error(
-        "Failed to apply translation state"
-      );
-    }
-
-    onReady?.();
-  } catch (error) {
-    console.warn(
-      "Google Translate synchronization failed:",
-      error.message
-    );
-
-    // Retry once after delayed script injection
-    if (retry) {
-      clearTimeout(googleTranslateRetryTimeout);
-
-      googleTranslateRetryTimeout = setTimeout(() => {
-        void applyGoogleTranslateRobust(langCode, {
-          retry: false,
-        });
-      }, GOOGLE_TRANSLATE_SYNC_DELAY);
-    }
-
-    onError?.(error);
-  } finally {
-    translateInitializationInProgress = false;
-  }
-};
-
 
 
 const GuestBanner = () => (
@@ -311,7 +162,8 @@ function App() {
   const restoredSnapshotRef = useRef(false);
   const getStoredLanguagePreference = () => {
     try {
-      return sessionStorage.getItem("agri:preferredLanguage");
+      return localStorage.getItem("agri:preferredLanguage") ||
+        sessionStorage.getItem("agri:preferredLanguage");
     } catch {
       return null;
     }
@@ -463,68 +315,35 @@ function App() {
 
 useEffect(() => {
   let cancelled = false;
-  let retryCount = 0;
-  const MAX_RETRIES = 3;
 
-  const synchronizeTranslation = async () => {
-    if (!preferredLang || cancelled) return;
+  if (!preferredLang) return;
 
-    // Skip redundant sync
-    if (lastAppliedLanguage === preferredLang) {
-      return;
+  // Some older route components still carry the Google Translate marker on
+  // visible UI copy. Keep explicit brand markers protected (translate="no"),
+  // but allow all other component text to participate in the selected language.
+  allowUserInterfaceTranslation();
+
+  void synchronizeTranslation(preferredLang);
+
+  const uiTranslationObserver = new MutationObserver((mutations) => {
+    allowUserInterfaceTranslation();
+    if (mutations.some(({ addedNodes }) => addedNodes.length > 0)) {
+      refreshGoogleTranslation(preferredLang);
     }
-
-    try {
-      // Fast path
-      if (applyGoogleTranslate(preferredLang)) {
-        console.log("Google Translate initialized successfully");
-        return;
-      }
-
-      // Robust fallback path
-      await applyGoogleTranslateRobust(preferredLang, {
-        onReady: () => {
-          console.log("Google Translate synchronized successfully");
-        },
-        onError: () => {
-          console.warn("Translation fallback active");
-          if (retryCount < MAX_RETRIES) {
-            retryCount++;
-            console.info(`Retrying Google Translate init (#${retryCount})`);
-            setTimeout(synchronizeTranslation, 2000 * retryCount); // exponential backoff
-          }
-        },
-      });
-    } catch (error) {
-      console.error("Google Translate init failed:", error);
-      if (retryCount < MAX_RETRIES) {
-        retryCount++;
-        setTimeout(synchronizeTranslation, 2000 * retryCount);
-      }
-    }
-  };
-
-  void synchronizeTranslation();
+  });
+  uiTranslationObserver.observe(document.body, { childList: true, subtree: true });
 
   const handleWidgetLoad = () => {
-    if (!cancelled) void synchronizeTranslation();
+    if (!cancelled) void synchronizeTranslation(preferredLang);
   };
 
   document.addEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
 
   return () => {
     cancelled = true;
+    uiTranslationObserver.disconnect();
     document.removeEventListener("googleTranslateWidgetLoaded", handleWidgetLoad);
-
-    if (googleTranslateObserver) {
-      googleTranslateObserver.disconnect();
-      googleTranslateObserver = null;
-    }
-
-    if (googleTranslateRetryTimeout) {
-      clearTimeout(googleTranslateRetryTimeout);
-      googleTranslateRetryTimeout = null;
-    }
+    cleanupGoogleTranslate();
   };
 }, [preferredLang]);
 
@@ -832,7 +651,7 @@ useEffect(() => {
     <div className={`app ${theme !== "light" ? "theme-dark" : ""} ${theme === "night" ? "theme-night" : ""} ${liteMode ? "lite-mode" : ""}`}>
       {user?.isAnonymous && <GuestBanner />}
 
-      {loading && <Loader fullPage={true} message={<span className="notranslate">Initializing Fasal Saathi...</span>} />}
+      {loading && <Loader fullPage={true} message={<span className="notranslate" translate="no">Initializing Fasal Saathi...</span>} />}
 
       {isOffline && (
         <div className="offline-banner" role="alert">
@@ -845,7 +664,7 @@ useEffect(() => {
 
       <nav className={`navbar ${isOpen ? "menu-open" : ""}`} role="navigation" aria-label="Main Navigation">
         <div className="nav-left">
-          <Link to="/" className="brand">Fasal Saathi</Link>
+          <Link to="/" className="brand" translate="no">Fasal Saathi</Link>
         </div>
 
         <ul className={`nav-center ${isOpen ? "active" : ""}`}>
@@ -882,13 +701,15 @@ useEffect(() => {
                     value={preferredLang}
                     onChange={(lang) => {
                       setPreferredLang(lang);
-                      i18n.changeLanguage(lang);
                       try {
+                        localStorage.setItem("agri:preferredLanguage", lang);
                         sessionStorage.setItem("agri:preferredLanguage", lang);
                       } catch {
                         console.warn("Unable to persist language preference");
                       }
                       void persistAppState({ preferredLang: lang });
+                      void i18n.changeLanguage(lang);
+                      window.location.reload();
                     }}
                   />
                 </div>
@@ -1031,7 +852,7 @@ useEffect(() => {
       )}
 
       <main id="main-content" tabIndex="-1" style={{ outline: 'none' }}>
-        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate">Loading route...</span>} />}>
+        <React.Suspense fallback={<Loader fullPage={true} message={<span className="notranslate" translate="no">Loading route...</span>} />}>
           <Routes>
             <Route path="/" element={<Home user={user} />} />
             <Route path="/advisor" element={<Advisor userData={userData} />} />

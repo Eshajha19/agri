@@ -1,3 +1,7 @@
+export const SUPPORTED_LANGUAGE_CODES = [
+  "en", "hi", "mr", "bn", "ta", "te", "gu", "pa", "kn", "ml", "or", "as"
+];
+
 export const LANGUAGE_OPTIONS = [
   { value: "en", label: "🌍 English", englishName: "english" },
   { value: "hi", label: "🇮🇳 हिंदी", englishName: "hindi" },

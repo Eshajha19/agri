@@ -14,9 +14,25 @@ import knTranslations from '../locales/kn/translation.json';
 import mlTranslations from '../locales/ml/translation.json';
 import orTranslations from '../locales/or/translation.json';
 import asTranslations from '../locales/as/translation.json';
+import { SUPPORTED_LANGUAGE_CODES } from './languageOptions';
+
+const SUPPORTED_LANGUAGES = SUPPORTED_LANGUAGE_CODES;
 
 const getInitialLanguage = () => {
-  return 'en';
+  try {
+    const storedLanguage = localStorage.getItem('agri:preferredLanguage');
+    if (SUPPORTED_LANGUAGES.includes(storedLanguage)) {
+      return storedLanguage;
+    }
+  } catch {
+    // Storage may be unavailable in privacy mode or during SSR.
+  }
+
+  const browserLanguage = typeof navigator !== 'undefined'
+    ? navigator.language?.split('-')[0]
+    : null;
+
+  return SUPPORTED_LANGUAGES.includes(browserLanguage) ? browserLanguage : 'en';
 };
 
 i18n
@@ -38,9 +54,23 @@ i18n
     },
     lng: getInitialLanguage(),
     fallbackLng: 'en',
+    supportedLngs: SUPPORTED_LANGUAGES,
+    load: 'languageOnly',
     interpolation: {
-      escapeValue: true,
+      escapeValue: false,
     },
   });
+
+i18n.on('languageChanged', (language) => {
+  const normalizedLanguage = language.split('-')[0];
+  document.documentElement.lang = normalizedLanguage;
+  try {
+    localStorage.setItem('agri:preferredLanguage', normalizedLanguage);
+  } catch {
+    // Language changes still work when storage is unavailable.
+  }
+});
+
+document.documentElement.lang = i18n.language;
 
 export default i18n;

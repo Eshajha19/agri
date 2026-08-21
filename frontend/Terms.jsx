@@ -20,7 +20,7 @@ export default function Terms() {
       <section>
         <h2>2. Use of the Platform</h2>
         <p>
-          <span className="notranslate">Fasal Saathi</span> provides AI-based agricultural recommendations. The
+          <span className="notranslate" translate="no">Fasal Saathi</span> provides AI-based agricultural recommendations. The
           information provided is for guidance only and should not be considered
           a substitute for professional agricultural advice.
         </p>
@@ -46,7 +46,7 @@ export default function Terms() {
       <section>
         <h2>5. Limitation of Liability</h2>
         <p>
-          <span className="notranslate">Fasal Saathi</span> is not liable for any losses or damages resulting from the
+          <span className="notranslate" translate="no">Fasal Saathi</span> is not liable for any losses or damages resulting from the
           use of recommendations provided by the platform.
         </p>
       </section>

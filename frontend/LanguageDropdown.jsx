@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, Check } from "lucide-react";
 
 function LanguageDropdown({ options, value, onChange }) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -27,7 +28,6 @@ function LanguageDropdown({ options, value, onChange }) {
   // Close on outside click
   useEffect(() => {
     const handleOutsideClick = (e) => {
-  const { t } = useTranslation();
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false);
         setSearch("");
@@ -85,7 +85,7 @@ function LanguageDropdown({ options, value, onChange }) {
   };
 
   return (
-    <div className="lang-dropdown notranslate" ref={containerRef}>
+    <div className="lang-dropdown notranslate" translate="no" ref={containerRef}>
       <button
         type="button"
         className="lang-dropdown-btn"
@@ -94,9 +94,9 @@ function LanguageDropdown({ options, value, onChange }) {
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls="lang-dropdown-list"
-        aria-label="Select language"
+        aria-label={t("language.select", "Select language")}
       >
-        {selected ? selected.label : "Language"} <ChevronDown size={14} className="inline-icon" />
+        {selected ? selected.label : t("nav.language", "Language")} <ChevronDown size={14} className="inline-icon" />
       </button>
 
       {isOpen && (
@@ -105,11 +105,11 @@ function LanguageDropdown({ options, value, onChange }) {
             ref={searchRef}
             type="text"
             className="lang-dropdown-search"
-            placeholder="Search language..."
+            placeholder={t("language.search", "Search language...")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            aria-label="Search language"
+            aria-label={t("language.search", "Search language")}
             autoFocus
           />
 
@@ -118,7 +118,7 @@ function LanguageDropdown({ options, value, onChange }) {
             ref={listRef}
             className="lang-dropdown-list"
             role="listbox"
-            aria-label="Languages"
+            aria-label={t("language.languages", "Languages")}
           >
             {sorted.length > 0 ? (
               sorted.map((o, index) => (
@@ -141,7 +141,7 @@ function LanguageDropdown({ options, value, onChange }) {
               ))
             ) : (
               <li className="lang-dropdown-empty" role="option" aria-selected="false">
-                No results found
+                {t("language.noResults", "No results found")}
               </li>
             )}
           </ul>
